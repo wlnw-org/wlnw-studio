@@ -24,6 +24,10 @@ concurrency:
   group: build-${{ github.ref }}
   cancel-in-progress: true
 
+# Read-only by default; only the release job may write (it creates the GitHub Release).
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -36,21 +40,19 @@ jobs:
     runs-on: ${{ matrix.target == 'windows-x64' && 'windows-latest' || matrix.target == 'macos-x64' && 'macos-15-intel' || 'macos-latest' }}
     timeout-minutes: ${{ matrix.target == 'macos-x64' && 240 || 90 }}
     steps:
-      - uses: actions/checkout@v7
-
-      - uses: pnpm/action-setup@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6
         with:
           version: 10
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: app/pnpm-lock.yaml
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2.9.3
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: ${{ matrix.target }}
 
@@ -59,18 +61,19 @@ jobs:
       - name: ONNX Runtime cache (Intel Mac)
         if: matrix.target == 'macos-x64'
         id: ort
-        uses: actions/cache/restore@v6
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ runner.temp }}/ort-x64
-          key: onnxruntime-1.31.1-osx-x86_64-static-v1
+          key: onnxruntime-1.31.1-osx-x86_64-static-v2
 
       - name: Build ONNX Runtime (Intel Mac)
         if: matrix.target == 'macos-x64' && steps.ort.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch v1.31.1 --recursive https://github.com/microsoft/onnxruntime.git "$RUNNER_TEMP/onnxruntime"
           cd "$RUNNER_TEMP/onnxruntime"
-          ./build.sh --config Release --parallel --skip_tests --compile_no_warning_as_error --skip_submodule_sync \
+          ./build.sh --config Release --parallel --skip_tests --compile_no_warning_as_error --skip_submodule_sync --build_shared_lib \
             --cmake_extra_defines CMAKE_OSX_ARCHITECTURES=x86_64 CMAKE_OSX_DEPLOYMENT_TARGET=11.0 onnxruntime_BUILD_UNIT_TESTS=OFF
+          # --build_shared_lib makes CMake build every dependency (re2, abseil, protobuf...), which a static-only build skips.
           # Keep only the static libraries, in the layout ort-sys expects (<dir>/Release/*.a and <dir>/Release/_deps/...).
           cd build/MacOS
           find Release -name '*.a' | while read -r f; do mkdir -p "$RUNNER_TEMP/ort-x64/$(dirname "$f")"; cp "$f" "$RUNNER_TEMP/ort-x64/$f"; done
@@ -79,10 +82,10 @@ jobs:
       # Saved straight away, so a later failing step does not throw away an hour of compiling.
       - name: Save ONNX Runtime build (Intel Mac)
         if: matrix.target == 'macos-x64' && steps.ort.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ${{ runner.temp }}/ort-x64
-          key: onnxruntime-1.31.1-osx-x86_64-static-v1
+          key: onnxruntime-1.31.1-osx-x86_64-static-v2
 
       - name: Use the ONNX Runtime build (Intel Mac)
         if: matrix.target == 'macos-x64'
@@ -208,7 +211,7 @@ jobs:
           done
 
       - name: Upload installer
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: wildlife-network-studio-${{ matrix.target }}
           path: |
@@ -226,16 +229,18 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           sparse-checkout: docs/releases
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           path: dist
           merge-multiple: true
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
         run: |
           ls -la dist
           # Copies under fixed names, so https://github.com/<repo>/releases/latest/download/<name> always gets the newest version.
@@ -245,7 +250,7 @@ jobs:
           cp dist/*/*-setup.exe stable/Wildlife-Network-Studio-windows-x64-setup.exe
           cp dist/*/*.msi stable/Wildlife-Network-Studio-windows-x64.msi
           {
-            if [ -f "docs/releases/${{ github.ref_name }}.md" ]; then cat "docs/releases/${{ github.ref_name }}.md"; echo; fi
+            if [ -f "docs/releases/$TAG.md" ]; then cat "docs/releases/$TAG.md"; echo; fi
             echo "## Downloads"
             echo
             echo "- macOS: Apple Silicon (aarch64) and Intel (x64) builds, both signed with Developer ID and notarized."
@@ -253,5 +258,5 @@ jobs:
             echo
             echo "Models are downloaded inside the app on first use (Perch 2.0, about 410 MB)."
           } > notes.md
-          gh release create "${{ github.ref_name }}" dist/*/* stable/* --repo "${{ github.repository }}" --draft \
-            --title "Wildlife Network Studio ${{ github.ref_name }}" --notes-file notes.md
+          gh release create "$TAG" dist/*/* stable/* --repo "$REPO" --draft \
+            --title "Wildlife Network Studio $TAG" --notes-file notes.md

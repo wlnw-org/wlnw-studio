@@ -30,13 +30,14 @@ fn install_dir(app: &tauri::AppHandle) -> R<PathBuf> {
     Ok(app.path().app_data_dir().map_err(err)?.join("models"))
 }
 
-/// Folders searched for model packs, first match wins: WLNW_MODELS, the downloads folder, the app bundle, next to the app.
+/// Folders searched for model packs, first match wins: WLNW_MODELS, the downloads folder, the app bundle (and, in development builds, next to the app).
 fn model_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
     use tauri::Manager;
     let mut c: Vec<PathBuf> = std::env::var("WLNW_MODELS").ok().map(PathBuf::from).into_iter().collect();
     if let Ok(d) = install_dir(app) { c.push(d); }
     if let Ok(d) = app.path().resource_dir() { c.push(d.join("models")); }
-    if let Ok(exe) = std::env::current_exe() { for a in exe.ancestors().skip(1).take(5) { c.push(a.join("models")); } }
+    // Development builds also look next to the source tree; release builds never load models from folders anyone could write to.
+    if cfg!(debug_assertions) { if let Ok(exe) = std::env::current_exe() { for a in exe.ancestors().skip(1).take(5) { c.push(a.join("models")); } } }
     c
 }
 
@@ -177,7 +178,10 @@ fn start_run(app: tauri::AppHandle, s: State<App>) -> R<()> {
     stop.store(false, Ordering::SeqCst);
     std::thread::spawn(move || {
         let ms = models(&app).0.clone();
-        let result = Project::open(&file).map_err(err).and_then(|p| run::run(&p, &ms, &stop, |pr| { let _ = app.emit("run-progress", pr); }).map_err(err));
+        // A panic (for example in a decoder on a damaged file) must not leave the app thinking a run is still going.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Project::open(&file).map_err(err).and_then(|p| run::run(&p, &ms, &stop, |pr| { let _ = app.emit("run-progress", pr); }).map_err(err))
+        })).unwrap_or_else(|_| Err("Processing stopped unexpectedly on a recording. Resume to carry on; if it happens again, see Files for the recording that failed.".into()));
         running.store(false, Ordering::SeqCst);
         let _ = app.emit("run-done", result.err());
     });

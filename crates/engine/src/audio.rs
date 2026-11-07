@@ -39,6 +39,8 @@ pub fn open(path: &Path, rate: u32) -> Result<AudioStream> {
     let format = probed.format;
     let track = format.default_track().ok_or_else(|| anyhow!("no audio track"))?;
     let source_rate = track.codec_params.sample_rate.ok_or_else(|| anyhow!("unknown sample rate"))?;
+    // A damaged or crafted header could ask for an absurd rate, and the resampler would size its buffers from it.
+    if !(1_000..=768_000).contains(&source_rate) { return Err(anyhow!("unsupported sample rate {source_rate} Hz")); }
     let decoder = symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
     let resampler = if source_rate == rate { None } else { Some(FftFixedIn::<f32>::new(source_rate as usize, rate as usize, 4096, 2, 1)?) };
     Ok(AudioStream { track: track.id, format, decoder, source_rate, rate, resampler, pending: Vec::new(), out: Vec::new(), eof: false, position: 0 })

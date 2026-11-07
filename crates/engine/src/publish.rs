@@ -11,6 +11,9 @@ const CHUNK: usize = 2000;
 pub struct PublishReport { pub sent: usize, pub added: i64, pub duplicates: i64, pub left_out: i64, pub status: Option<String> }
 
 fn post(dataset: &str, key: &str, body: serde_json::Value) -> Result<serde_json::Value> {
+    if dataset.is_empty() || dataset.len() > 64 || !dataset.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_') {
+        anyhow::bail!("That dataset id does not look right: copy it from the dataset's page on wlnw.org.");
+    }
     let r = ureq::post(&format!("{API}/{dataset}"))
         .set("authorization", &format!("Bearer {key}"))
         .set("user-agent", concat!("WildlifeNetworkStudio/", env!("CARGO_PKG_VERSION")))
