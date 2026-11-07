@@ -86,7 +86,7 @@ jobs:
 
       - name: Use the ONNX Runtime build (Intel Mac)
         if: matrix.target == 'macos-x64'
-        run: echo "ORT_LIB_PATH=$RUNNER_TEMP/ort-x64" >> "$GITHUB_ENV"
+        run: echo "ORT_LIB_PATH=$RUNNER_TEMP/ort-x64/Release" >> "$GITHUB_ENV"  # Release/*.a with deps in Release/_deps/<lib>-build
 
       - name: Install app dependencies
         working-directory: app
