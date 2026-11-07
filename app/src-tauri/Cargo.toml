@@ -1,6 +1,6 @@
 [package]
 name = "wlnw-studio"
-version = "0.1.0"
+version = "0.1.1"
 description = "Wildlife Network Studio"
 authors = ["Wildlife Network"]
 license = "Apache-2.0"

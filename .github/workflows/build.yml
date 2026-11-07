@@ -191,6 +191,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: docs/releases
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -200,6 +203,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la dist
-          gh release create "${{ github.ref_name }}" dist/*/* --repo "${{ github.repository }}" --draft \
-            --title "Wildlife Network Studio ${{ github.ref_name }}" \
-            --notes "First test release. macOS (Apple Silicon): signed with Developer ID and notarized. Windows: installers are not code signed yet, so Windows shows a SmartScreen warning (More info, then Run anyway). Models are downloaded inside the app on first use (Perch 2.0, about 410 MB)."
+          # Copies under fixed names, so https://github.com/<repo>/releases/latest/download/<name> always gets the newest version.
+          mkdir stable
+          cp dist/*/*.dmg stable/Wildlife-Network-Studio-mac-arm64.dmg
+          cp dist/*/*-setup.exe stable/Wildlife-Network-Studio-windows-x64-setup.exe
+          cp dist/*/*.msi stable/Wildlife-Network-Studio-windows-x64.msi
+          {
+            if [ -f "docs/releases/${{ github.ref_name }}.md" ]; then cat "docs/releases/${{ github.ref_name }}.md"; echo; fi
+            echo "## Downloads"
+            echo
+            echo "- macOS (Apple Silicon): signed with Developer ID and notarized."
+            echo "- Windows (64-bit): the installers are not code signed yet, so Windows may show a SmartScreen warning (More info, then Run anyway)."
+            echo
+            echo "Models are downloaded inside the app on first use (Perch 2.0, about 410 MB)."
+          } > notes.md
+          gh release create "${{ github.ref_name }}" dist/*/* stable/* --repo "${{ github.repository }}" --draft \
+            --title "Wildlife Network Studio ${{ github.ref_name }}" --notes-file notes.md
