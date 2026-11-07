@@ -1,3 +1,5 @@
+<p align="center"><img src="app/public/logo.svg" width="96" alt="Wildlife Network logo" /></p>
+
 # Wildlife Network Studio
 
 A free desktop app for wildlife researchers with more recordings than time. Point it at a drive of recordings; it finds
