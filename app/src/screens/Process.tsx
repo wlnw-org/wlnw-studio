@@ -27,6 +27,7 @@ export default function Process({ summary, live, refresh, onError, next, showFil
           : <button className="primary" onClick={start} disabled={summary.models.length === 0 || left <= 0}>{p.jobs_done > 0 && left > 0 ? "Resume" : "Start"}</button>}
       </header>
       {summary.model_errors.map((e) => <p key={e} className="note">{e}</p>)}
+      {!summary.space.enough && left > 0 && <p className="warn card">Perch saves a fingerprint of every 5 seconds of audio next to the project, for &quot;find more like this&quot; and the Wildlife Network Classifier. The recordings still to process need about <b>{fmtBytes(summary.space.needed)}</b>, but the disk with the project has only <b>{fmtBytes(summary.space.free ?? 0)}</b> free. Free some space or save the project on a bigger disk (it can sit apart from the recordings). Processing stops by itself if less than 1 GB is left.</p>}
       <ModelPacks onChange={refresh} onError={onError} />
 
       {summary.models.length > 0 && <div className="card">
@@ -56,6 +57,7 @@ export default function Process({ summary, live, refresh, onError, next, showFil
           {summary.running && live && live.speed_x > 0 && <div><b>{Math.round(live.speed_x)}x</b> real time</div>}
           {summary.running && live?.eta_s != null && live.eta_s > 0 && <div>about <b>{fmtDuration(live.eta_s)}</b> left</div>}
           <div className="muted">{fmtBytes(p.bytes_done)} of {fmtBytes(p.bytes_total)}</div>
+          {summary.space.enough && summary.space.needed > 1e9 && left > 0 && <div className="muted">Needs about {fmtBytes(summary.space.needed)} of disk space{summary.space.free != null ? `, ${fmtBytes(summary.space.free)} free` : ""}</div>}
         </div>
         {summary.running && live?.current && <p className="muted small mono">{live.current_model}: {live.current}</p>}
         {p.errors > 0 && <p className="warn">{p.errors} {p.errors === 1 ? "file" : "files"} could not be read (damaged or not audio). They are skipped. <button className="link inline" onClick={() => showFiles("failed")}>See which and why</button></p>}

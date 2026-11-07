@@ -13,6 +13,7 @@ path = "src/bin/wlnw.rs"
 anyhow = "1.0.104"
 base64 = "0.23.1"
 chrono = { version = "0.4.45", features = ["serde"] }
+fs4 = "1.1.0"
 half = "2.7.1"
 hex = "0.4.3"
 ort = { version = "2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-native"] }

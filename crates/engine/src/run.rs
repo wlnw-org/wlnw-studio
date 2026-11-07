@@ -54,6 +54,49 @@ pub fn progress(p: &Project, plan: &HashMap<i64, Vec<String>>) -> Result<Progres
     Ok(pr)
 }
 
+/// Perch keeps one embedding per 5 s window next to the project (1,536 half floats = 3,072 bytes), so about 614 bytes per
+/// second of audio. Below this much free space on the project's disk, a run stops before the next file.
+pub const EMB_BYTES_PER_SECOND: f64 = 3072.0 / 5.0;
+pub const MIN_FREE_BYTES: u64 = 1 << 30;
+
+/// Embedding bytes per byte of a recording not processed yet (its length is unknown until it is read): typical
+/// recorder formats, 48 kHz 16-bit mono WAV (96 KB/s), FLAC about half that, MP3 about 128 kbit/s.
+fn emb_per_audio_byte(path: &str) -> f64 {
+    let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    let audio_bytes_per_s = match ext.as_str() { "flac" => 48_000.0, "mp3" => 16_000.0, _ => 96_000.0 };
+    EMB_BYTES_PER_SECOND / audio_bytes_per_s
+}
+
+#[derive(Debug, Clone, Serialize, Default)]
+pub struct Space {
+    /// Disk space the embeddings of the recordings still to run through an embedding model will take (an estimate).
+    pub needed: u64,
+    /// Free space on the disk that holds the project, when it can be read.
+    pub free: Option<u64>,
+    /// False when the estimate plus a 1 GB margin is more than the free space.
+    pub enough: bool,
+}
+
+pub fn space(p: &Project, plan: &HashMap<i64, Vec<String>>, embedding_models: &[String]) -> Result<Space> {
+    let mut needed = 0f64;
+    if !embedding_models.is_empty() {
+        let mut done: std::collections::HashSet<(i64, String)> = std::collections::HashSet::new();
+        let mut st = p.db.prepare("SELECT file_id, model FROM file_models")?;
+        for r in st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))? { done.insert(r?); }
+        let mut st = p.db.prepare("SELECT id, deployment_id, path, COALESCE(bytes, 0), duration_s FROM files")?;
+        for r in st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?, r.get::<_, Option<f64>>(4)?)))? {
+            let (id, dep, path, bytes, dur) = r?;
+            for m in plan.get(&dep).into_iter().flatten().filter(|m| embedding_models.contains(m)) {
+                if done.contains(&(id, m.clone())) { continue; }
+                needed += match dur { Some(d) => d * EMB_BYTES_PER_SECOND, None => bytes as f64 * emb_per_audio_byte(&path) };
+            }
+        }
+    }
+    let needed = needed.round() as u64;
+    let free = fs4::available_space(p.path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."))).ok();
+    Ok(Space { needed, free, enough: free.is_none_or(|f| f >= needed + MIN_FREE_BYTES) })
+}
+
 /// What one run did, for the project history.
 #[derive(Default)]
 struct RunStats { files: HashMap<i64, f64>, failed: std::collections::HashSet<i64> }
@@ -115,6 +158,12 @@ fn run_inner(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut
             let done: bool = p.db.query_row("SELECT EXISTS (SELECT 1 FROM file_models WHERE file_id = ?1 AND model = ?2)", params![id, model_id], |r| r.get(0))?;
             if done { continue; }
             let Some(model) = models.iter().find(|m| m.info().id == model_id) else { continue };
+            if model.info().embeds {
+                let dir = p.path.parent().filter(|d| !d.as_os_str().is_empty()).unwrap_or(Path::new("."));
+                if fs4::available_space(dir).is_ok_and(|f| f < MIN_FREE_BYTES) {
+                    anyhow::bail!("Less than 1 GB is free on the disk that holds the project, so processing stopped before the next file. Free some space or move the project to a bigger disk, then resume.");
+                }
+            }
             let mut prog = progress(p, &plan)?;
             let wall = started.elapsed().as_secs_f64();
             if wall > 1.0 && audio_s > 0.0 { prog.speed_x = audio_s / wall; prog.eta_s = Some((prog.bytes_total - prog.bytes_done) as f64 * wall / bytes_run.max(1) as f64); }
@@ -202,4 +251,28 @@ pub fn process_file(path: &Path, model: &dyn Classifier) -> Result<FileResult> {
     }
     out.seconds = s.position as f64 / rate;
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn space_estimate() {
+        let dir = std::env::temp_dir().join(format!("wlnw-space-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Project::open(&dir.join("t.wlnw")).unwrap();
+        p.db.execute_batch("INSERT INTO deployments (id, name, folder) VALUES (1, 'A', '/x');
+            INSERT INTO files (id, deployment_id, path, bytes, duration_s) VALUES
+              (1, 1, '/x/a.wav', 96000000, NULL), (2, 1, '/x/b.flac', 48000000, NULL), (3, 1, '/x/c.wav', 1, 3600.0), (4, 1, '/x/d.wav', 96000000, NULL);
+            INSERT INTO file_models VALUES (4, 'perch-2.0', 'done', NULL, '2026-11-07 10:00:00');").unwrap();
+        let plan: HashMap<i64, Vec<String>> = [(1, vec!["perch-2.0".to_string(), "birdnet-2.4".to_string()])].into();
+        let s = space(&p, &plan, &["perch-2.0".to_string()]).unwrap();
+        // 1,000 s of WAV + 1,000 s of FLAC + one known hour; file 4 is done.
+        assert_eq!(s.needed, ((1000.0 + 1000.0 + 3600.0) * EMB_BYTES_PER_SECOND).round() as u64);
+        assert!(s.free.is_some());
+        assert_eq!(space(&p, &plan, &[]).unwrap().needed, 0);
+        drop(p);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

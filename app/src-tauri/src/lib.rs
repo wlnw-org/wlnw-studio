@@ -105,7 +105,7 @@ struct DepOut { #[serde(flatten)] d: wlnw_engine::store::Deployment, models: Vec
 #[derive(Serialize)]
 struct Summary {
     path: String, name: String, deployments: Vec<DepOut>, progress: run::Progress, running: bool,
-    dataset: export::DatasetInfo, models: Vec<ModelInfo>, model_errors: Vec<String>, chosen: Vec<String>, wnc: Option<WncInfo>,
+    dataset: export::DatasetInfo, models: Vec<ModelInfo>, model_errors: Vec<String>, chosen: Vec<String>, wnc: Option<WncInfo>, space: run::Space,
 }
 
 #[derive(Serialize)]
@@ -134,6 +134,7 @@ fn summary(app: tauri::AppHandle, s: State<App>) -> R<Summary> {
             let perch_region = matches!((d.lat, d.lon), (Some(a), Some(b)) if models::perch_first(a, b));
             DepOut { models: plan.get(&d.id).cloned().unwrap_or_default(), perch_region, d }
         }).collect(),
+        space: run::space(&p, &plan, &ms.iter().filter(|m| m.info().embeds).map(|m| m.info().id.clone()).collect::<Vec<_>>()).map_err(err)?,
         progress: run::progress(&p, &plan).map_err(err)?, running: s.running.load(Ordering::Relaxed),
         dataset: export::info(&p),
         models: ms.iter().map(|m| m.info().clone()).collect(), model_errors: errors.clone(), chosen: p.chosen_models(),

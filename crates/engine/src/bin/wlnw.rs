@@ -43,7 +43,14 @@ fn main() -> Result<()> {
             wlnw_engine::download::install(pack, &models_dir(a.get(3)), &stop, |d, t| { let pc = d * 100 / t.max(1); if pc >= last + 10 || d == t { last = pc; eprintln!("{pc}%"); } })?;
             println!("{} installed", pack.name);
         }
-        "scan" => println!("{}", serde_json::to_string_pretty(&scan::scan(&proj()?, Path::new(a.get(3).context("folder?")?))?)?),
+        "scan" => {
+            let p = proj()?;
+            let folder = a.get(3).context("folder?")?;
+            let t = history::now(&p);
+            let r = scan::scan(&p, Path::new(folder));
+            history::log(&p, "scan", &t, &r, |x| format!("Added {} new of {} recordings found in {folder} (command line)", history::n(x.added as i64), history::n(x.found as i64)), "Adding a folder failed");
+            println!("{}", serde_json::to_string_pretty(&r?)?);
+        }
         "place" => {
             let p = proj()?;
             let id: i64 = a[3].parse()?;
@@ -57,6 +64,11 @@ fn main() -> Result<()> {
             let have: Vec<String> = ms.iter().map(|m| m.info().id.clone()).collect();
             let plan = run::plan(&p, &have)?;
             println!("{}", serde_json::to_string_pretty(&run::progress(&p, &plan)?)?);
+            let emb: Vec<String> = ms.iter().filter(|m| m.info().embeds).map(|m| m.info().id.clone()).collect();
+            let sp = run::space(&p, &plan, &emb)?;
+            let size = |b: u64| if b >= 1_000_000_000 { format!("{:.1} GB", b as f64 / 1e9) } else { format!("{} MB", (b as f64 / 1e6).round()) };
+            eprintln!("disk: about {} still needed for embeddings, {} free{}", size(sp.needed),
+                sp.free.map(size).unwrap_or_else(|| "unknown".into()), if sp.enough { "" } else { "  NOT ENOUGH" });
             for d in p.deployments()? { println!("{:>4} {:<24} {:>5} files {:>7.1} h  lat {:?} lon {:?} utc{:+.1}  models {:?}", d.id, d.name, d.files, d.hours, d.lat, d.lon, d.tz_offset_min as f64 / 60.0, plan.get(&d.id)); }
         }
         "run" => {
@@ -99,25 +111,40 @@ fn main() -> Result<()> {
             let w = wnc::window_for(&p, a[3].parse()?)?.context("no Perch window for that detection")?;
             for s in wnc::similar(&p, w, a.get(4).and_then(|n| n.parse().ok()).unwrap_or(10))? { println!("{:.3}  {}  {:.0} s  window {}", s.similarity, s.path, s.start_s, s.window_id); }
         }
-        "train" => println!("{}", serde_json::to_string_pretty(&wnc::train(&proj()?)?)?),
+        "train" => {
+            let p = proj()?;
+            let t = history::now(&p);
+            let r = wnc::train(&p);
+            history::log(&p, "train", &t, &r, |x| format!("Trained the Wildlife Network Classifier: {} species, {} detections scored (command line)", x.classes.len(), history::n(x.detections as i64)), "Training failed");
+            println!("{}", serde_json::to_string_pretty(&r?)?);
+        }
         "wnc-export" => { let p = proj()?; std::fs::write(&a[3], serde_json::to_string_pretty(&wnc::pack(&p).context("nothing trained yet")?)?)?; }
         "wnc-import" => println!("{} detections", wnc::import(&proj()?, &std::fs::read_to_string(&a[3])?)?),
         "export" => {
             let p = proj()?;
             let out = Path::new(a.get(4).context("output path?")?);
-            let n = match a.get(3).map(String::as_str) {
-                Some("csv") => export::csv(&p, out)?,
-                Some("wdx") => export::wdx(&p, out)?,
-                Some("dwca") => export::dwca(&p, out)?,
-                Some("raven") => export::raven_audacity(&p, out)?,
+            let t = history::now(&p);
+            let (r, name) = match a.get(3).map(String::as_str) {
+                Some("csv") => (export::csv(&p, out), "CSV"),
+                Some("wdx") => (export::wdx(&p, out), "WDX"),
+                Some("dwca") => (export::dwca(&p, out), "a Darwin Core Archive"),
+                Some("raven") => (export::raven_audacity(&p, out), "Raven and Audacity tables"),
                 _ => bail!("format: csv, wdx, dwca or raven"),
             };
+            history::log(&p, "export", &t, &r, |k| format!("Exported {} detections as {name} to {} (command line)", history::n(*k as i64), out.display()), "Export failed");
+            let n = r?;
             println!("{n} detections exported to {}", out.display());
         }
         "publish" => {
             let key = std::env::var("WLNW_UPLOAD_KEY").context("set WLNW_UPLOAD_KEY to the dataset's upload key")?;
-            let r = publish::publish(&proj()?, a.get(3).context("dataset id?")?, &key, a.iter().any(|x| x == "--submit"), |d, t| eprintln!("{d}/{t}"))?;
-            println!("{}", serde_json::to_string_pretty(&r)?);
+            let p = proj()?;
+            let dataset = a.get(3).context("dataset id?")?;
+            let submit = a.iter().any(|x| x == "--submit");
+            let t = history::now(&p);
+            let r = publish::publish(&p, dataset, &key, submit, |d, t| eprintln!("{d}/{t}"));
+            history::log(&p, "publish", &t, &r, |x| format!("Sent {} records to Wildlife Network dataset {dataset}: {} added, {} already there{} (command line)", history::n(x.sent as i64),
+                history::n(x.added), history::n(x.duplicates), if submit { ", submitted for review" } else { "" }), "Publishing failed");
+            println!("{}", serde_json::to_string_pretty(&r?)?);
         }
         _ => println!("{}", include_str!("wlnw.rs").lines().skip(1).take_while(|l| l.starts_with("//!")).map(|l| l.trim_start_matches("//!")).collect::<Vec<_>>().join("\n")),
     }
