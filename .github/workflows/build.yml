@@ -59,7 +59,7 @@ jobs:
       - name: ONNX Runtime cache (Intel Mac)
         if: matrix.target == 'macos-x64'
         id: ort
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/ort-x64
           key: onnxruntime-1.31.1-osx-x86_64-static-v1
@@ -75,6 +75,14 @@ jobs:
           cd build/MacOS
           find Release -name '*.a' | while read -r f; do mkdir -p "$RUNNER_TEMP/ort-x64/$(dirname "$f")"; cp "$f" "$RUNNER_TEMP/ort-x64/$f"; done
           du -sh "$RUNNER_TEMP/ort-x64"
+
+      # Saved straight away, so a later failing step does not throw away an hour of compiling.
+      - name: Save ONNX Runtime build (Intel Mac)
+        if: matrix.target == 'macos-x64' && steps.ort.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/ort-x64
+          key: onnxruntime-1.31.1-osx-x86_64-static-v1
 
       - name: Use the ONNX Runtime build (Intel Mac)
         if: matrix.target == 'macos-x64'
