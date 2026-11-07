@@ -6,6 +6,9 @@
 //!   wlnw use <project.wlnw> [model ids...]          models to run (none = regional default)
 //!   wlnw run <project.wlnw> [models dir]
 //!   wlnw status <project.wlnw> [models dir]
+//!   wlnw files <project.wlnw> [done|partial|todo|failed|none] [models dir]
+//!   wlnw retry <project.wlnw>                       try failed recordings again on the next run
+//!   wlnw history <project.wlnw>
 //!   wlnw species <project.wlnw>
 //!   wlnw verdict <project.wlnw> <detection id> yes|no|unsure
 //!   wlnw example <project.wlnw> <detection id> <scientific name> [absent]
@@ -17,7 +20,7 @@
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use wlnw_engine::{export, models, publish, review, run, scan, store::Project, wnc};
+use wlnw_engine::{export, files, history, models, publish, review, run, scan, store::Project, wnc};
 
 fn models_dir(dir: Option<&String>) -> PathBuf {
     dir.map(PathBuf::from).or_else(|| std::env::var("WLNW_MODELS").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("models"))
@@ -64,6 +67,23 @@ fn main() -> Result<()> {
             let r = run::run(&p, &ms, &stop, |pr| eprintln!("{}/{} jobs, {} detections{}", pr.jobs_done, pr.jobs_total, pr.detections,
                 pr.current.as_deref().map(|c| format!(", now {} on {c}", pr.current_model.as_deref().unwrap_or(""))).unwrap_or_default()))?;
             println!("{}", serde_json::to_string_pretty(&r)?);
+        }
+        "files" => {
+            let p = proj()?;
+            let (ms, _) = models::available(&models_dir(a.get(4)));
+            let have: Vec<String> = ms.iter().map(|m| m.info().id.clone()).collect();
+            let q = files::Query { status: a.get(3).cloned(), limit: 2000, ..Default::default() };
+            let page = files::list(&p, &have, &q)?;
+            for r in &page.rows {
+                let errs = r.models.iter().filter_map(|m| m.error.as_ref().map(|e| format!("  {}: {e}", m.model))).collect::<Vec<_>>().join("");
+                println!("{:<8} {:>6} det  {}{errs}", r.status, r.detections, r.path);
+            }
+            let c = page.counts;
+            eprintln!("{} recordings: {} done, {} partly done, {} to do, {} failed, {} without a model", c.all, c.done, c.partial, c.todo, c.failed, c.none);
+        }
+        "retry" => println!("{} failed attempts cleared", files::retry_failed(&proj()?, None)?),
+        "history" => {
+            for e in history::list(&proj()?, 500)? { println!("{}  {:<8} {:<11} {}", e.started_at, e.kind, e.status, e.summary); }
         }
         "species" => {
             for s in review::species(&proj()?)? { println!("{:>6} {:>6}  {:<12} t={:.2} ({})  {} / {}", s.detections, s.kept, s.model, s.threshold, s.threshold_source, s.common, s.scientific); }

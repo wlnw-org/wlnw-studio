@@ -135,3 +135,25 @@ h2 .tag { font-size: 12px; vertical-align: middle; font-style: normal; }
 .pack-text { flex: 1; } .pack-text a { color: var(--accent); }
 .pack-act { display: flex; gap: 8px; align-items: center; white-space: nowrap; }
 .bar.slim { height: 6px; margin-top: 8px; }
+nav.secondary { border-top: 1px solid var(--line); padding-top: 10px; }
+nav.secondary .step { padding-left: 42px; }
+.filters { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
+.filters input[type="search"] { width: 240px; } .filters select { width: auto; }
+.tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.tab { padding: 5px 10px; font-size: 13px; border-radius: 16px; }
+.tab.on { background: var(--accent-soft); border-color: var(--accent); font-weight: 600; }
+.tab .count { color: var(--muted); font-weight: 400; margin-left: 2px; }
+.grid.files td.fname { max-width: 320px; overflow-wrap: anywhere; }
+.grid.files td.actions { white-space: nowrap; } .grid.files td.actions button + button { margin-left: 4px; }
+.status { font-size: 12px; font-weight: 600; }
+.st-done, .st-finished { color: var(--good); } .st-partial, .st-paused, .st-running { color: var(--accent); }
+.st-failed, .st-interrupted { color: var(--bad); } .st-todo, .st-none { color: var(--muted); }
+.model-states { display: flex; flex-wrap: wrap; gap: 2px 8px; }
+.ms { color: var(--muted); } .ms-done { color: var(--good); } .ms-error { color: var(--bad); }
+.pager { justify-content: center; align-items: center; gap: 14px; margin-top: 12px; }
+.history { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.history .h { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.history .h-finished { border-left-color: var(--good); } .history .h-failed, .history .h-interrupted { border-left-color: var(--bad); }
+.history .h-paused, .history .h-running { border-left-color: var(--accent); }
+.history .h-top { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+.history p { margin: 4px 0 0; overflow-wrap: anywhere; }

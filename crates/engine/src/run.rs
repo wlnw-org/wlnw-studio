@@ -4,6 +4,7 @@ use crate::audio;
 use crate::birdnet::RANGE_THRESHOLD;
 use crate::meta::birdnet_week;
 use crate::models::{default_models, Classifier};
+use crate::history;
 use crate::store::Project;
 use anyhow::Result;
 use chrono::NaiveDateTime;
@@ -53,8 +54,48 @@ pub fn progress(p: &Project, plan: &HashMap<i64, Vec<String>>) -> Result<Progres
     Ok(pr)
 }
 
+/// What one run did, for the project history.
+#[derive(Default)]
+struct RunStats { files: HashMap<i64, f64>, failed: std::collections::HashSet<i64> }
+
 /// Runs every (recording, model) pair still to do. `on_progress` is called before each pair; set `stop` to finish the current pair and return.
-pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut on_progress: impl FnMut(&Progress)) -> Result<Progress> {
+/// Each run is written to the project history with what it did.
+pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, on_progress: impl FnMut(&Progress)) -> Result<Progress> {
+    history::close_interrupted(p)?;
+    let have: Vec<String> = models.iter().map(|m| m.info().id.clone()).collect();
+    let mut used: Vec<String> = plan(p, &have)?.into_values().flatten().collect();
+    used.sort();
+    used.dedup();
+    let names = used.iter().map(|id| models.iter().find(|m| &m.info().id == id).map(|m| m.info().name.clone()).unwrap_or_else(|| id.clone())).collect::<Vec<_>>().join(" + ");
+    let names = if names.is_empty() { "No model".to_string() } else { names };
+    let count = || -> i64 { p.db.query_row("SELECT COUNT(*) FROM detections", [], |r| r.get(0)).unwrap_or(0) };
+    let before = count();
+    let hid = history::begin(p, "run", &format!("{names}: running"), &serde_json::json!({ "models": used }))?;
+    let started = Instant::now();
+    let mut st = RunStats::default();
+    let r = run_inner(p, models, stop, on_progress, &mut st);
+    let audio: f64 = st.files.values().sum::<f64>().max(0.0);
+    let added = count() - before;
+    let wall = started.elapsed().as_secs_f64();
+    let mut parts = if st.files.is_empty() { vec!["no recording read".to_string()] } else {
+        vec![format!("{} {} ({} of audio)", history::n(st.files.len() as i64), if st.files.len() == 1 { "recording" } else { "recordings" }, history::hours(audio)),
+            format!("{} new detections", history::n(added))]
+    };
+    if !st.failed.is_empty() { parts.push(format!("{} could not be read", history::n(st.failed.len() as i64))); }
+    let (status, tail) = match &r {
+        Ok(pr) if pr.jobs_done >= pr.jobs_total => ("finished", if st.failed.is_empty() { "Every recording is done." } else { "Every recording has been tried." }.to_string()),
+        Ok(pr) => ("paused", format!("Paused with {} left.", history::n(pr.files_total - pr.files_done))),
+        Err(e) => ("failed", format!("Stopped by an error: {e:#}")),
+    };
+    let summary = format!("{names}: {}. {tail}", parts.join(", "));
+    history::end(p, hid, status, &summary, &serde_json::json!({
+        "models": used, "recordings": st.files.len(), "failed": st.failed.len(), "audio_s": audio, "detections": added,
+        "seconds": wall, "speed_x": if wall > 0.0 { audio / wall } else { 0.0 },
+    }))?;
+    r
+}
+
+fn run_inner(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut on_progress: impl FnMut(&Progress), stats: &mut RunStats) -> Result<Progress> {
     let have: Vec<String> = models.iter().map(|m| m.info().id.clone()).collect();
     let plan = plan(p, &have)?;
     let mut species: HashMap<String, Vec<i64>> = HashMap::new();
@@ -112,10 +153,12 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut o
                     tx.execute("INSERT OR REPLACE INTO file_models (file_id, model, status, error, processed_at) VALUES (?1, ?2, 'done', NULL, datetime('now'))", params![id, model_id])?;
                     tx.commit()?;
                     audio_s += out.seconds;
+                    stats.files.insert(id, out.seconds);
                 }
                 Err(e) => {
                     p.db.execute("INSERT OR REPLACE INTO file_models (file_id, model, status, error, processed_at) VALUES (?1, ?2, 'error', ?3, datetime('now'))",
                         params![id, model_id, format!("{e:#}")])?;
+                    stats.failed.insert(id);
                 }
             }
             bytes_run += bytes;

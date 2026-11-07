@@ -59,6 +59,9 @@ CREATE TABLE IF NOT EXISTS windows (id INTEGER PRIMARY KEY, file_id INTEGER NOT 
   model TEXT NOT NULL, start_s REAL NOT NULL, end_s REAL NOT NULL, row INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS windows_file ON windows (file_id, start_s);
 -- Examples named by the user for the Wildlife Network classifier: a window and the species heard in it (or 'absent').
+-- What was done and when: runs, folders added, training, exports, publishes (history.rs).
+CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, started_at TEXT NOT NULL, finished_at TEXT,
+  status TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE IF NOT EXISTS examples (window_id INTEGER NOT NULL REFERENCES windows(id) ON DELETE CASCADE, species INTEGER NOT NULL REFERENCES species(id),
   present INTEGER NOT NULL, at TEXT NOT NULL, PRIMARY KEY (window_id, species));
 "#;

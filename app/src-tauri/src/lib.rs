@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use wlnw_engine::models::{self, Classifier, ModelInfo};
-use wlnw_engine::{download, export, publish, review, run, scan, store::Project, wnc};
+use wlnw_engine::{download, export, files, history, publish, review, run, scan, store::Project, wnc};
 
 #[derive(Default)]
 struct App {
@@ -146,7 +146,11 @@ async fn scan_folder(folder: String, s: State<'_, App>) -> R<scan::ScanReport> {
     let file = path(&s)?;
     tauri::async_runtime::spawn_blocking(move || {
         let p = Project::open(&file).map_err(err)?;
-        scan::scan(&p, Path::new(&folder)).map_err(err)
+        let t = history::now(&p);
+        let r = scan::scan(&p, Path::new(&folder));
+        history::log(&p, "scan", &t, &r, |x| format!("Added {} new of {} recordings found in {} ({} {})", history::n(x.added as i64), history::n(x.found as i64), folder,
+            x.deployments, if x.deployments == 1 { "recorder" } else { "recorders" }), "Adding a folder failed");
+        r.map_err(err)
     }).await.map_err(err)?
 }
 
@@ -235,7 +239,13 @@ fn label_window(window: i64, scientific: String, common: String, present: bool, 
 #[tauri::command]
 async fn train_wnc(s: State<'_, App>) -> R<wnc::TrainReport> {
     let file = path(&s)?;
-    tauri::async_runtime::spawn_blocking(move || wnc::train(&Project::open(&file).map_err(err)?).map_err(err)).await.map_err(err)?
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        let t = history::now(&p);
+        let r = wnc::train(&p);
+        history::log(&p, "train", &t, &r, |x| format!("Trained the Wildlife Network Classifier: {} species, {} detections scored", x.classes.len(), history::n(x.detections as i64)), "Training failed");
+        r.map_err(err)
+    }).await.map_err(err)?
 }
 
 #[tauri::command]
@@ -260,10 +270,13 @@ async fn export_to(format: String, out: String, s: State<'_, App>) -> R<usize> {
     tauri::async_runtime::spawn_blocking(move || {
         let p = Project::open(&file).map_err(err)?;
         let o = Path::new(&out);
-        match format.as_str() {
-            "csv" => export::csv(&p, o), "wdx" => export::wdx(&p, o), "dwca" => export::dwca(&p, o),
-            "raven" => export::raven_audacity(&p, o), _ => return Err("unknown format".into()),
-        }.map_err(err)
+        let t = history::now(&p);
+        let (r, name) = match format.as_str() {
+            "csv" => (export::csv(&p, o), "CSV"), "wdx" => (export::wdx(&p, o), "WDX"), "dwca" => (export::dwca(&p, o), "a Darwin Core Archive"),
+            "raven" => (export::raven_audacity(&p, o), "Raven and Audacity tables"), _ => return Err("unknown format".into()),
+        };
+        history::log(&p, "export", &t, &r, |k| format!("Exported {} detections as {name} to {out}", history::n(*k as i64)), "Export failed");
+        r.map_err(err)
     }).await.map_err(err)?
 }
 
@@ -272,9 +285,32 @@ async fn publish_to(app: tauri::AppHandle, dataset: String, key: String, submit:
     let file = path(&s)?;
     tauri::async_runtime::spawn_blocking(move || {
         let p = Project::open(&file).map_err(err)?;
-        publish::publish(&p, dataset.trim(), key.trim(), submit, |d, t| { let _ = app.emit("publish-progress", (d, t)); }).map_err(err)
+        let t = history::now(&p);
+        let r = publish::publish(&p, dataset.trim(), key.trim(), submit, |d, t| { let _ = app.emit("publish-progress", (d, t)); });
+        history::log(&p, "publish", &t, &r, |x| format!("Sent {} records to Wildlife Network dataset {}: {} added, {} already there{}", history::n(x.sent as i64), dataset.trim(),
+            history::n(x.added), history::n(x.duplicates), if submit { ", submitted for review" } else { "" }), "Publishing failed");
+        r.map_err(err)
     }).await.map_err(err)?
 }
+
+#[tauri::command]
+fn list_files(app: tauri::AppHandle, query: files::Query, s: State<App>) -> R<files::Page> { files::list(&open(&s)?, &have(&app), &query).map_err(err) }
+
+#[tauri::command]
+async fn export_file_list(app: tauri::AppHandle, query: files::Query, out: String, s: State<'_, App>) -> R<usize> {
+    let file = path(&s)?;
+    let have = have(&app);
+    tauri::async_runtime::spawn_blocking(move || files::csv(&Project::open(&file).map_err(err)?, &have, &query, Path::new(&out)).map_err(err)).await.map_err(err)?
+}
+
+#[tauri::command]
+fn retry_failed(file: Option<i64>, s: State<App>) -> R<usize> {
+    if s.running.load(Ordering::SeqCst) { return Err("Pause processing first.".into()); }
+    files::retry_failed(&open(&s)?, file).map_err(err)
+}
+
+#[tauri::command]
+fn history_list(s: State<App>) -> R<Vec<history::Entry>> { history::list(&open(&s)?, 500).map_err(err) }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -288,7 +324,8 @@ pub fn run() {
             a
         })
         .invoke_handler(tauri::generate_handler![open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
-            species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to])
+            species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
+            list_files, export_file_list, retry_failed, history_list])
         .run(tauri::generate_context!())
         .expect("error while running Wildlife Network Studio");
 }

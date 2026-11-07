@@ -17,7 +17,19 @@ export interface PublishReport { sent: number; added: number; duplicates: number
 export interface CatalogItem { id: string; name: string; description: string; licence: string; licence_url: string; downloadable: boolean; note: string; installed: boolean; downloading: boolean; size: number }
 export interface DownloadEvent { id: string; done: number; total: number; finished: boolean; error: string | null }
 
+export interface ModelStatus { model: string; status: "done" | "error" | "todo"; error: string | null; processed_at: string | null }
+export type FileStatus = "done" | "partial" | "todo" | "failed" | "none";
+export interface FileRow { id: number; path: string; deployment_id: number; recorder: string; start_local: string | null; bytes: number; duration_s: number | null; status: FileStatus; models: ModelStatus[]; detections: number }
+export interface FileCounts { all: number; done: number; partial: number; todo: number; failed: number; none: number }
+export interface FilePage { rows: FileRow[]; total: number; counts: FileCounts }
+export interface FileQuery { status?: string | null; deployment?: number | null; search?: string | null; offset?: number; limit?: number }
+export interface HistoryEntry { id: number; kind: string; started_at: string; finished_at: string | null; status: string; summary: string; detail: Record<string, unknown> | null }
+
 export const api = {
+  listFiles: (query: FileQuery) => invoke<FilePage>("list_files", { query }),
+  exportFileList: (query: FileQuery, out: string) => invoke<number>("export_file_list", { query, out }),
+  retryFailed: (file: number | null) => invoke<number>("retry_failed", { file }),
+  history: () => invoke<HistoryEntry[]>("history_list"),
   modelCatalog: () => invoke<CatalogItem[]>("model_catalog"),
   downloadModel: (id: string) => invoke<void>("download_model", { id }),
   cancelDownload: () => invoke<void>("cancel_download"),
@@ -50,3 +62,10 @@ export const fmtDuration = (s: number) => (s < 90 ? `${Math.round(s)} s` : s < 5
 export const MODEL_NAMES: Record<string, string> = { "birdnet-2.4": "BirdNET", "perch-2.0": "Perch", wnc: "Wildlife Network Classifier" };
 export const modelName = (id: string) => MODEL_NAMES[id] ?? id;
 export const modelTag = (id: string) => (id === "wnc" ? "WN Classifier" : modelName(id));
+
+/** SQLite's UTC "YYYY-MM-DD HH:MM:SS" as local date and time. */
+export const fmtWhen = (utc: string | null) => {
+  if (!utc) return "";
+  const d = new Date(utc.replace(" ", "T") + "Z");
+  return isNaN(d.getTime()) ? utc : d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+};

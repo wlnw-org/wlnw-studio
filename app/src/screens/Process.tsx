@@ -3,7 +3,7 @@ import ModelPacks from "../ModelPacks";
 
 /** Choose the models, then start, pause and resume. Each recording is saved per model when finished, so stopping or a
  * crash loses at most one file. */
-export default function Process({ summary, live, refresh, onError, next }: { summary: Summary; live: Progress | null; refresh: () => void; onError: (e: string) => void; next: () => void }) {
+export default function Process({ summary, live, refresh, onError, next, showFiles }: { summary: Summary; live: Progress | null; refresh: () => void; onError: (e: string) => void; next: () => void; showFiles: (status?: string) => void }) {
   const p = live && summary.running ? live : summary.progress;
   const pct = p.bytes_total ? Math.min(100, (p.bytes_done / p.bytes_total) * 100) : 0;
   const left = p.jobs_total - p.jobs_done;
@@ -58,8 +58,9 @@ export default function Process({ summary, live, refresh, onError, next }: { sum
           <div className="muted">{fmtBytes(p.bytes_done)} of {fmtBytes(p.bytes_total)}</div>
         </div>
         {summary.running && live?.current && <p className="muted small mono">{live.current_model}: {live.current}</p>}
-        {p.errors > 0 && <p className="warn">{p.errors} {p.errors === 1 ? "file" : "files"} could not be read (damaged or not audio). They are skipped.</p>}
+        {p.errors > 0 && <p className="warn">{p.errors} {p.errors === 1 ? "file" : "files"} could not be read (damaged or not audio). They are skipped. <button className="link inline" onClick={() => showFiles("failed")}>See which and why</button></p>}
         {!summary.running && summary.deployments.some((d) => d.models.length === 0) && <p className="warn">Some recorders have no model to run.</p>}
+        <p className="small"><button className="link" onClick={() => showFiles()}>See every recording and its status</button></p>
         <p className="muted small">Per recorder: {summary.deployments.map((d) => `${d.name}: ${d.models.map(modelName).join(" + ")}`).join("; ")}</p>
       </div>
       {p.jobs_done > 0 && <div className="foot"><button className="primary" onClick={next}>Next: review</button></div>}

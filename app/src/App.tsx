@@ -6,8 +6,10 @@ import Recordings from "./screens/Recordings";
 import Process from "./screens/Process";
 import Review from "./screens/Review";
 import Publish from "./screens/Publish";
+import Files from "./screens/Files";
+import History from "./screens/History";
 
-type Step = "recordings" | "process" | "review" | "publish";
+type Step = "recordings" | "process" | "review" | "publish" | "files" | "history";
 const STEPS: { id: Step; label: string; hint: string }[] = [
   { id: "recordings", label: "Recordings", hint: "Add a drive or folder" },
   { id: "process", label: "Find species", hint: "BirdNET and Perch, on this computer" },
@@ -24,6 +26,7 @@ export default function App() {
   const [step, setStep] = useState<Step>("recordings");
   const [error, setError] = useState<string | null>(null);
   const [live, setLive] = useState<Progress | null>(null);
+  const [filesStatus, setFilesStatus] = useState<string | undefined>(undefined);
 
   const refresh = useCallback(async () => {
     try { setSummary(await api.summary()); } catch (e) { setError(String(e)); }
@@ -90,15 +93,25 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <nav className="secondary">
+          <button className={step === "files" ? "step active" : "step"} onClick={() => { setFilesStatus(undefined); setStep("files"); }}>
+            <span><b>Files</b><small>Every recording and its status</small></span>
+          </button>
+          <button className={step === "history" ? "step active" : "step"} onClick={() => setStep("history")}>
+            <span><b>History</b><small>Runs, exports and publishing</small></span>
+          </button>
+        </nav>
         {summary.running && <div className="running"><span className="pulse" /> Processing {prog.files_done} of {prog.files_total} recordings</div>}
         <button className="link small" onClick={() => { setSummary(null); setLive(null); }}>Close project</button>
       </aside>
       <main className="content">
         {error && <div className="banner error" onClick={() => setError(null)}>{error} <span className="dismiss">Dismiss</span></div>}
         {step === "recordings" && <Recordings summary={summary} refresh={refresh} onError={setError} next={() => setStep("process")} />}
-        {step === "process" && <Process summary={summary} live={live} refresh={refresh} onError={setError} next={() => setStep("review")} />}
+        {step === "process" && <Process summary={summary} live={live} refresh={refresh} onError={setError} next={() => setStep("review")} showFiles={(st) => { setFilesStatus(st); setStep("files"); }} />}
         {step === "review" && <Review summary={summary} refresh={refresh} onError={setError} />}
         {step === "publish" && <Publish summary={summary} refresh={refresh} onError={setError} />}
+        {step === "files" && <Files key={filesStatus ?? ""} summary={summary} refresh={refresh} onError={setError} initialStatus={filesStatus} />}
+        {step === "history" && <History summary={summary} onError={setError} />}
       </main>
     </div>
   );
