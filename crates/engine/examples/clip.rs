@@ -1,0 +1,1 @@
+fn main() { let c = wlnw_engine::review::clip(std::path::Path::new(&std::env::args().nth(1).unwrap()), 9.0, 12.0).unwrap(); println!("{}x{} wav {} bytes offset {}", c.width, c.height, c.wav.len(), c.offset_s); std::fs::write("/tmp/wlnw_clip.wav", &c.wav).unwrap(); }

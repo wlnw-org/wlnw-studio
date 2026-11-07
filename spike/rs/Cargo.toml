@@ -1,0 +1,12 @@
+[package]
+name = "rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+hound = "3.5.1"
+ort = { version = "2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-native"] }
+rayon = "1.12.0"
+realfft = "3.5.1"
+rustfft = "6.4.1"

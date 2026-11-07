@@ -1,0 +1,132 @@
+//! Exports: Darwin Core Archive for GBIF (IPT or direct), WDX for Wildlife Network and other tools, Raven selection tables,
+//! Audacity labels, and plain CSV. All use the accepted detections (in range, at or above each species' threshold,
+//! not rejected), so what is exported is what was reviewed.
+use crate::store::{Detection, Project};
+use anyhow::Result;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::io::Write;
+use std::path::Path;
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DatasetInfo {
+    pub title: String, pub institution: Option<String>, pub people: Vec<String>, pub license: String,
+    pub description: Option<String>, pub contact_email: Option<String>,
+}
+
+pub fn info(p: &Project) -> DatasetInfo {
+    p.setting("dataset").ok().flatten().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| DatasetInfo {
+        title: "Acoustic detections".into(), license: "CC-BY-4.0".into(), ..Default::default()
+    })
+}
+
+fn q(v: &str) -> String { if v.contains([',', '"', '\n']) { format!("\"{}\"", v.replace('"', "\"\"")) } else { v.to_string() } }
+fn tsv(v: &str) -> String { v.replace(['\t', '\n', '\r'], " ") }
+const LICENSE_URL: &[(&str, &str)] = &[
+    ("CC0-1.0", "http://creativecommons.org/publicdomain/zero/1.0/legalcode"),
+    ("CC-BY-4.0", "http://creativecommons.org/licenses/by/4.0/legalcode"),
+    ("CC-BY-NC-4.0", "http://creativecommons.org/licenses/by-nc/4.0/legalcode"),
+];
+fn license_url(l: &str) -> &'static str { LICENSE_URL.iter().find(|(k, _)| *k == l).map_or(LICENSE_URL[1].1, |x| x.1) }
+fn utc(d: &Detection) -> String { d.utc.map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default() }
+/// The model's name as written in exports ("BirdNET 2.4", "Perch 2.0", "Wildlife Network Classifier").
+pub fn model_name(id: &str) -> String {
+    match id { "birdnet-2.4" => "BirdNET 2.4".into(), "perch-2.0" => "Perch 2.0".into(), x if x.starts_with("wnc") => "Wildlife Network Classifier".into(), x => x.into() }
+}
+fn status(d: &Detection) -> &'static str { if d.verdict.as_deref() == Some("yes") { "verified by expert" } else { "unverified" } }
+
+pub fn csv(p: &Project, out: &Path) -> Result<usize> {
+    let rows = p.accepted()?;
+    let mut f = std::io::BufWriter::new(std::fs::File::create(out)?);
+    writeln!(f, "site,latitude,longitude,file,start_s,end_s,utc,scientific_name,common_name,model,confidence,review")?;
+    for d in &rows {
+        writeln!(f, "{},{},{},{},{:.1},{:.1},{},{},{},{},{:.4},{}", q(&d.site), d.lat.map_or(String::new(), |v| v.to_string()), d.lon.map_or(String::new(), |v| v.to_string()),
+            q(&d.path), d.start_s, d.end_s, utc(d), q(&d.scientific), q(&d.common), model_name(&d.model), d.confidence, d.verdict.as_deref().unwrap_or(""))?;
+    }
+    Ok(rows.len())
+}
+
+/// One Raven selection table and one Audacity label file per recording, next to each other in `dir`.
+pub fn raven_audacity(p: &Project, dir: &Path) -> Result<usize> {
+    std::fs::create_dir_all(dir)?;
+    let rows = p.accepted()?;
+    let mut by_file: BTreeMap<&str, Vec<&Detection>> = BTreeMap::new();
+    for d in &rows { by_file.entry(&d.path).or_default().push(d); }
+    for (path, dets) in &by_file {
+        let stem = Path::new(path).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let mut r = std::fs::File::create(dir.join(format!("{stem}.Table.1.selections.txt")))?;
+        writeln!(r, "Selection\tView\tChannel\tBegin Time (s)\tEnd Time (s)\tLow Freq (Hz)\tHigh Freq (Hz)\tSpecies Code\tCommon Name\tConfidence\tBegin Path\tFile Offset (s)")?;
+        let mut a = std::fs::File::create(dir.join(format!("{stem}.labels.txt")))?;
+        for (i, d) in dets.iter().enumerate() {
+            writeln!(r, "{}\tSpectrogram 1\t1\t{:.1}\t{:.1}\t0\t15000\t{}\t{}\t{:.4}\t{}\t{:.1}", i + 1, d.start_s, d.end_s, tsv(&d.scientific), tsv(&d.common), d.confidence, tsv(path), d.start_s)?;
+            writeln!(a, "{:.1}\t{:.1}\t{} ({:.2})", d.start_s, d.end_s, if d.common.is_empty() { &d.scientific } else { &d.common }, d.confidence)?;
+        }
+    }
+    Ok(rows.len())
+}
+
+/// WDX v0.4 events, one per line (https://github.com/arunrajiah/wildlife-detection-exchange).
+pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
+    let rows = p.accepted()?;
+    let i = info(p);
+    let ds = p.setting("dataset_id")?.unwrap_or_else(|| "studio".into());
+    let mut f = std::io::BufWriter::new(std::fs::File::create(out)?);
+    for d in &rows {
+        let Some(t) = d.utc else { continue };
+        let ev = serde_json::json!({
+            "wdx": "0.4", "eventId": format!("wlnw-studio:{}:{}", ds, d.id),
+            "eventStart": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "eventEnd": (t + chrono::Duration::milliseconds(((d.end_s - d.start_s) * 1000.0) as i64)).format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "deployment": { "deploymentId": format!("{}:{}", ds, d.deployment_id), "name": d.site, "latitude": d.lat, "longitude": d.lon, "sensorType": "acoustic-recorder" },
+            "detection": { "scientificName": d.scientific, "vernacularName": d.common, "taxonRank": "species", "confidence": (d.confidence * 10000.0).round() / 10000.0,
+                "classifier": { "name": model_name(&d.model).rsplit_once(' ').map_or(model_name(&d.model), |x| x.0.to_string()), "version": model_name(&d.model).rsplit_once(' ').map_or(String::new(), |x| x.1.to_string()) } },
+            "media": { "mediaType": "audio", "fileName": Path::new(&d.path).file_name().map(|n| n.to_string_lossy().to_string()), "startOffsetSeconds": d.start_s, "durationSeconds": d.end_s - d.start_s },
+            "review": { "status": if d.verdict.as_deref() == Some("yes") { "confirmed" } else { "unreviewed" } },
+            "source": { "system": "wlnw-studio", "systemVersion": env!("CARGO_PKG_VERSION"), "sourceRecordId": d.id.to_string() },
+            "license": i.license,
+            "dataset": { "datasetId": ds, "title": i.title, "rightsHolder": i.institution, "recordedBy": i.people },
+        });
+        if d.lat.is_none() { continue; }
+        writeln!(f, "{ev}")?;
+    }
+    Ok(rows.len())
+}
+
+/// A Darwin Core Archive (occurrence core) ready for an IPT or GBIF: occurrence.txt, meta.xml and a minimal eml.xml.
+pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
+    let rows = p.accepted()?;
+    let i = info(p);
+    let ds = p.setting("dataset_id")?.unwrap_or_else(|| "wlnw-studio".into());
+    let cols = ["occurrenceID", "basisOfRecord", "eventDate", "scientificName", "vernacularName", "decimalLatitude", "decimalLongitude",
+        "coordinateUncertaintyInMeters", "locationID", "recordedBy", "institutionCode", "datasetName", "license", "identifiedBy",
+        "identificationVerificationStatus", "identificationRemarks", "associatedMedia", "occurrenceStatus"];
+    let mut occ = String::new();
+    occ.push_str(&cols.join("\t"));
+    occ.push('\n');
+    let mut n = 0;
+    for d in &rows {
+        let (Some(_), Some(lat), Some(lon)) = (d.utc, d.lat, d.lon) else { continue };
+        let line = [format!("{ds}:{}", d.id), "MachineObservation".into(), utc(d), d.scientific.clone(), d.common.clone(), format!("{lat:.5}"), format!("{lon:.5}"),
+            "100".into(), d.site.clone(), i.people.join(" | "), i.institution.clone().unwrap_or_default(), i.title.clone(), license_url(&i.license).into(),
+            format!("{}{}", model_name(&d.model), if d.verdict.as_deref() == Some("yes") { " | confirmed by reviewer" } else { "" }), status(d).into(),
+            format!("confidence {:.4}; clip {:.1} to {:.1} s", d.confidence, d.start_s, d.end_s),
+            Path::new(&d.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "present".into()];
+        occ.push_str(&line.iter().map(|v| tsv(v)).collect::<Vec<_>>().join("\t"));
+        occ.push('\n');
+        n += 1;
+    }
+    let fields: String = cols.iter().enumerate().skip(1).map(|(k, c)| format!("    <field index=\"{k}\" term=\"http://rs.tdwg.org/dwc/terms/{c}\"/>\n").replace("dwc/terms/license", "purl.org/dc/terms/license").replace("http://rs.tdwg.org/purl.org", "http://purl.org")).collect();
+    let meta = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<archive xmlns=\"http://rs.tdwg.org/dwc/text/\" metadata=\"eml.xml\">\n  <core encoding=\"UTF-8\" fieldsTerminatedBy=\"\\t\" linesTerminatedBy=\"\\n\" fieldsEnclosedBy=\"\" ignoreHeaderLines=\"1\" rowType=\"http://rs.tdwg.org/dwc/terms/Occurrence\">\n    <files><location>occurrence.txt</location></files>\n    <id index=\"0\"/>\n{fields}  </core>\n</archive>\n");
+    let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
+    let creators: String = i.people.iter().map(|p| format!("    <creator><individualName><surName>{}</surName></individualName></creator>\n", esc(p))).collect();
+    let eml = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<eml:eml xmlns:eml=\"https://eml.ecoinformatics.org/eml-2.2.0\" packageId=\"{}\" system=\"wlnw-studio\">\n  <dataset>\n    <title>{}</title>\n{creators}{}    <abstract><para>{}</para></abstract>\n    <intellectualRights><para>{}</para></intellectualRights>\n    <methods><methodStep><description><para>Automatic identification in Wildlife Network Studio {} ({}); per-species thresholds fitted from expert review where reviewed.</para></description></methodStep></methods>\n  </dataset>\n</eml:eml>\n",
+        esc(&ds), esc(&i.title), i.institution.as_ref().map(|x| format!("    <organization>{}</organization>\n", esc(x))).unwrap_or_default(), esc(i.description.as_deref().unwrap_or("")), license_url(&i.license), env!("CARGO_PKG_VERSION"), { let mut m: Vec<String> = rows.iter().map(|d| model_name(&d.model)).collect(); m.sort(); m.dedup(); m.join(", ") });
+    let mut z = zip::ZipWriter::new(std::fs::File::create(out)?);
+    let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+    for (name, body) in [("occurrence.txt", occ), ("meta.xml", meta), ("eml.xml", eml)] {
+        z.start_file(name, o)?;
+        z.write_all(body.as_bytes())?;
+    }
+    z.finish()?;
+    Ok(n)
+}

@@ -1,0 +1,80 @@
+import { useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
+import { api, fmtHours, modelName, type Deployment, type Summary } from "../api";
+import MapPicker from "../MapPicker";
+
+/** Add recordings, then confirm each recorder's place and time zone (filled in from the files when they carry it). */
+export default function Recordings({ summary, refresh, onError, next }: { summary: Summary; refresh: () => void; onError: (e: string) => void; next: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [report, setReport] = useState<string | null>(null);
+  async function add() {
+    const folder = await open({ title: "Choose a folder or drive with recordings", directory: true, multiple: false });
+    if (typeof folder !== "string") return;
+    setBusy(true); setReport(null);
+    try {
+      const r = await api.scanFolder(folder);
+      setReport(`${r.found.toLocaleString()} recordings found, ${r.added.toLocaleString()} new, in ${r.deployments} ${r.deployments === 1 ? "recorder" : "recorders"}.` +
+        (r.without_time ? ` ${r.without_time.toLocaleString()} have no date in their name or metadata and will be skipped for publishing.` : ""));
+      refresh();
+    } catch (e) { onError(String(e)); }
+    setBusy(false);
+  }
+  const deps = summary.deployments;
+  const missing = deps.filter((d) => d.lat == null || !d.tz_known).length;
+  const hours = deps.reduce((s, d) => s + d.hours, 0);
+  return (
+    <section>
+      <header className="head">
+        <div>
+          <h2>Recordings</h2>
+          <p className="muted">Add a whole drive or SD card copy. Subfolders are searched; WAV, FLAC and MP3 are read. Recordings already added are skipped.</p>
+        </div>
+        <button className="primary" onClick={add} disabled={busy}>{busy ? "Reading files..." : "Add a folder or drive"}</button>
+      </header>
+      {report && <p className="note">{report}</p>}
+      {deps.length === 0 ? (
+        <div className="empty">No recordings yet. Studio reads the time and place written by AudioMoth and Song Meter recorders, and the date in file names such as SMM01234_20250601_053000.wav.</div>
+      ) : (
+        <>
+          <p className="muted">{deps.length} {deps.length === 1 ? "recorder" : "recorders"}, {deps.reduce((s, d) => s + d.files, 0).toLocaleString()} files{hours > 0 ? `, ${fmtHours(hours)} processed` : ""}.
+            {missing > 0 && <b className="warn"> {missing} need a place or time zone: the place decides which species are expected and which models run.</b>}</p>
+          <table className="grid">
+            <thead><tr><th>Recorder</th><th>Files</th><th>Place</th><th>Times are UTC +</th><th>Models</th><th /></tr></thead>
+            <tbody>{deps.map((d) => <Row key={d.id} d={d} onSaved={refresh} onError={onError} />)}</tbody>
+          </table>
+          <div className="foot"><button className="primary" onClick={next}>Next: find species</button></div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function Row({ d, onSaved, onError }: { d: Deployment; onSaved: () => void; onError: (e: string) => void }) {
+  const [v, setV] = useState({ name: d.name, lat: d.lat?.toString() ?? "", lon: d.lon?.toString() ?? "", tz: (d.tz_offset_min / 60).toString() });
+  const [saved, setSaved] = useState(false);
+  const [map, setMap] = useState(false);
+  const dirty = v.name !== d.name || v.lat !== (d.lat?.toString() ?? "") || v.lon !== (d.lon?.toString() ?? "") || Number(v.tz) * 60 !== d.tz_offset_min || !d.tz_known;
+  async function save(patch: Partial<typeof v> = {}) {
+    const x = { ...v, ...patch };
+    const num = (s: string) => (s.trim() === "" ? null : Number(s));
+    try { await api.updateDeployment(d.id, x.name.trim() || d.name, num(x.lat), num(x.lon), Number(x.tz) || 0); setSaved(true); onSaved(); } catch (e) { onError(String(e)); }
+  }
+  return (
+    <tr>
+      <td><input value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} aria-label="Recorder name" /><small className="muted block">{d.model ?? ""} {d.folder ? d.folder.split(/[\\/]/).slice(-2).join("/") : d.serial}</small></td>
+      <td>{d.files}</td>
+      <td>
+        <div className="place">
+          <input className={d.lat == null ? "need" : ""} value={v.lat} onChange={(e) => setV({ ...v, lat: e.target.value })} placeholder="Latitude" inputMode="decimal" aria-label="Latitude" />
+          <input className={d.lon == null ? "need" : ""} value={v.lon} onChange={(e) => setV({ ...v, lon: e.target.value })} placeholder="Longitude" inputMode="decimal" aria-label="Longitude" />
+          <button className="small-btn" onClick={() => setMap(true)} title="Choose on a map">Map</button>
+        </div>
+      </td>
+      <td><input className={!d.tz_known ? "need tz" : "tz"} value={v.tz} onChange={(e) => setV({ ...v, tz: e.target.value })} inputMode="decimal" aria-label="UTC offset in hours" title={d.tz_known ? "From the recording or confirmed" : "Please confirm: Song Meters usually record local time, AudioMoths UTC"} /></td>
+      <td className="small">{d.models.map(modelName).join(" + ") || "none"}{d.perch_region && <small className="muted block">Perch first in this region</small>}</td>
+      <td>{dirty ? <button onClick={() => save()}>Save</button> : saved ? <span className="ok">Saved</span> : null}</td>
+      {map && <MapPicker lat={d.lat} lon={d.lon} title={v.name} onClose={() => setMap(false)}
+        onPick={(la, lo) => { const patch = { lat: String(la), lon: String(lo) }; setV({ ...v, ...patch }); setMap(false); save(patch); }} />}
+    </tr>
+  );
+}

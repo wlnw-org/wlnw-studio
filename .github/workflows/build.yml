@@ -1,0 +1,205 @@
+# Desktop builds. Run by hand (Actions tab, "Build" > Run workflow) or by pushing a v* tag, not on every push:
+# Windows minutes count double on private repositories.
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: "Also build for macOS (Apple Silicon)"
+        type: boolean
+        default: false
+      test_signing:
+        description: "Sign the Windows installer with a throwaway test certificate (checks the signing step; not for release)"
+        type: boolean
+        default: false
+      esigner_sandbox:
+        description: "Sign with SSL.com eSigner's public sandbox (checks the eSigner step; not for release)"
+        type: boolean
+        default: false
+  push:
+    tags: ["v*"]
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows always; macOS on tags or when asked for.
+        target: ${{ fromJSON((startsWith(github.ref, 'refs/tags/v') || inputs.macos) && '["windows-x64", "macos-arm64"]' || '["windows-x64"]') }}
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.target == 'windows-x64' && 'windows-latest' || 'macos-latest' }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: app/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2.9.3
+        with:
+          shared-key: ${{ matrix.target }}
+
+      - name: Install app dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Engine tests
+        run: cargo test --release -p wlnw-engine
+
+      # Windows signing: Tauri calls app/scripts/sign-windows.mjs for the app and each installer. The certificate comes from
+      # secrets (WINDOWS_PFX_BASE64 + WINDOWS_PFX_PASSWORD, or the ESIGNER_* set); without one the build stays unsigned.
+      - name: Signing setup (Windows)
+        if: matrix.target == 'windows-x64'
+        shell: pwsh
+        env:
+          TEST_SIGNING: ${{ inputs.test_signing }}
+          HAS_PFX: ${{ secrets.WINDOWS_PFX_BASE64 != '' }}
+          HAS_ESIGNER: ${{ secrets.ESIGNER_USERNAME != '' }}
+          SANDBOX: ${{ inputs.esigner_sandbox }}
+        run: |
+          $script = (Join-Path $env:GITHUB_WORKSPACE "app/scripts/sign-windows.mjs").Replace('\', '/')
+          @{ bundle = @{ windows = @{ signCommand = @{ cmd = "node"; args = @($script, "%1") } } } } | ConvertTo-Json -Depth 6 | Set-Content app/src-tauri/tauri.sign.json
+          if ($env:TEST_SIGNING -eq "true") {
+            $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Wildlife Network Studio TEST" -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(2)
+            $pw = [guid]::NewGuid().ToString()
+            Export-PfxCertificate -Cert $cert -FilePath test.pfx -Password (ConvertTo-SecureString $pw -AsPlainText -Force) | Out-Null
+            $b64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("test.pfx"))
+            Write-Output "::add-mask::$pw"
+            "WINDOWS_PFX_BASE64=$b64" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "WINDOWS_PFX_PASSWORD=$pw" | Out-File -FilePath $env:GITHUB_ENV -Append
+            Remove-Item test.pfx
+            Write-Output "Test certificate created: the installer will be signed by 'Wildlife Network Studio TEST' (not trusted, for checking only)."
+          } elseif ($env:HAS_ESIGNER -eq "true" -or $env:SANDBOX -eq "true") {
+            # SSL.com CodeSignTool (Windows package, Java included): https://www.ssl.com/guide/esigner-codesigntool-command-guide/
+            $dir = Join-Path $env:RUNNER_TEMP "CodeSignTool"
+            Invoke-WebRequest -Uri "https://ssl.com/download/codesigntool-for-windows/" -OutFile "$env:RUNNER_TEMP\cst.zip"
+            Expand-Archive "$env:RUNNER_TEMP\cst.zip" -DestinationPath $dir -Force
+            $bat = Get-ChildItem -Path $dir -Recurse -Filter CodeSignTool.bat | Select-Object -First 1
+            if (-not $bat) { throw "CodeSignTool.bat not found in the download" }
+            "CODESIGNTOOL_DIR=$($bat.DirectoryName)" | Out-File -FilePath $env:GITHUB_ENV -Append
+            if ($env:SANDBOX -eq "true") {
+              # SSL.com's published demo account and test endpoints: https://www.ssl.com/guide/esigner-demo-credentials-and-certificates/
+              @"
+          CLIENT_ID=qOUeZCCzSqgA93acB3LYq6lBNjgZdiOxQc-KayC3UMw
+          OAUTH2_ENDPOINT=https://oauth-sandbox.ssl.com/oauth2/token
+          CSC_API_ENDPOINT=https://cs-try.ssl.com
+          TSA_URL=http://ts.ssl.com
+          "@ -replace '(?m)^\s+', '' | Set-Content (Join-Path $bat.DirectoryName "conf/code_sign_tool.properties")
+              "ESIGNER_USERNAME=esigner_demo" | Out-File -FilePath $env:GITHUB_ENV -Append
+              "ESIGNER_PASSWORD=esignerDemo#1" | Out-File -FilePath $env:GITHUB_ENV -Append
+              "ESIGNER_TOTP_SECRET=RDXYgV9qju+6/7GnMf1vCbKexXVJmUVr+86Wq/8aIGg=" | Out-File -FilePath $env:GITHUB_ENV -Append
+              Write-Output "eSigner sandbox: files will be signed with SSL.com's demo certificate (not trusted, for checking only)."
+            } else { Write-Output "Signing with SSL.com eSigner." }
+          } elseif ($env:HAS_PFX -eq "true") { Write-Output "Signing with the certificate in WINDOWS_PFX_BASE64." }
+          else { Write-Output "No certificate secret set: the installer will be unsigned." }
+
+      # macOS: Tauri signs with the Developer ID certificate (APPLE_CERTIFICATE, a base64 .p12) and notarizes with the
+      # App Store Connect API key; without these secrets the app is built unsigned.
+      - name: Notarization key (macOS)
+        if: matrix.target == 'macos-arm64'
+        env:
+          P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          if [ -n "$P8" ]; then
+            printf '%s' "$P8" > "$RUNNER_TEMP/AuthKey.p8"
+            echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+          else echo "No notarization key set: the app will not be notarized."; fi
+
+      - name: Build installer
+        working-directory: app
+        env:
+          WINDOWS_PFX_BASE64: ${{ env.WINDOWS_PFX_BASE64 || secrets.WINDOWS_PFX_BASE64 }}
+          WINDOWS_PFX_PASSWORD: ${{ env.WINDOWS_PFX_PASSWORD || secrets.WINDOWS_PFX_PASSWORD }}
+          ESIGNER_USERNAME: ${{ env.ESIGNER_USERNAME || secrets.ESIGNER_USERNAME }}
+          ESIGNER_PASSWORD: ${{ env.ESIGNER_PASSWORD || secrets.ESIGNER_PASSWORD }}
+          ESIGNER_CREDENTIAL_ID: ${{ secrets.ESIGNER_CREDENTIAL_ID }}
+          ESIGNER_TOTP_SECRET: ${{ env.ESIGNER_TOTP_SECRET || secrets.ESIGNER_TOTP_SECRET }}
+          APPLE_CERTIFICATE: ${{ matrix.target == 'macos-arm64' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.target == 'macos-arm64' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: pnpm tauri build --bundles ${{ matrix.target == 'windows-x64' && 'nsis,msi --config src-tauri/tauri.sign.json' || 'app,dmg' }}
+
+      - name: Check signatures (Windows)
+        if: matrix.target == 'windows-x64'
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem target/release/bundle/nsis/*.exe, target/release/bundle/msi/*.msi
+          foreach ($f in $files) {
+            $s = Get-AuthenticodeSignature $f.FullName
+            $who = if ($s.SignerCertificate) { $s.SignerCertificate.Subject } else { "unsigned" }
+            Write-Output ("{0}: {1} ({2})" -f $f.Name, $who, $s.Status)
+            if (("${{ inputs.test_signing }}" -eq "true" -or "${{ inputs.esigner_sandbox }}" -eq "true") -and -not $s.SignerCertificate) { throw "$($f.Name) was not signed" }
+          }
+
+      # Tauri notarizes the app inside; the disk image people download is notarized and stapled here too.
+      - name: Notarize the disk image (macOS)
+        if: matrix.target == 'macos-arm64' && env.APPLE_API_KEY_PATH != ''
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          for d in target/release/bundle/dmg/*.dmg; do
+            xcrun notarytool submit "$d" --key "$APPLE_API_KEY_PATH" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" --wait --timeout 30m
+            xcrun stapler staple "$d"
+          done
+
+      - name: Check signature and notarization (macOS)
+        if: matrix.target == 'macos-arm64'
+        run: |
+          APP=$(ls -d target/release/bundle/macos/*.app | head -1)
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign -dv "$APP" 2>&1 | grep -E "Authority=Developer ID|TeamIdentifier|Runtime" || true
+          spctl --assess --type execute --verbose=4 "$APP"
+          xcrun stapler validate "$APP"
+          for d in target/release/bundle/dmg/*.dmg; do
+            spctl --assess --type open --context context:primary-signature --verbose=4 "$d"
+            xcrun stapler validate "$d"
+          done
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: wildlife-network-studio-${{ matrix.target }}
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/msi/*.msi
+            target/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14
+
+  # On a v* tag: a draft GitHub Release with the installers, for checking before it is published.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release create "${{ github.ref_name }}" dist/*/* --repo "${{ github.repository }}" --draft \
+            --title "Wildlife Network Studio ${{ github.ref_name }}" \
+            --notes "First test release. macOS (Apple Silicon): signed with Developer ID and notarized. Windows: installers are not code signed yet, so Windows shows a SmartScreen warning (More info, then Run anyway). Models are downloaded inside the app on first use (Perch 2.0, about 410 MB)."

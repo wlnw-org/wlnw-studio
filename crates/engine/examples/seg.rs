@@ -1,0 +1,1 @@
+fn main() { let a: Vec<String> = std::env::args().collect(); let s = wlnw_engine::audio::read_segment(std::path::Path::new(&a[1]), a[2].parse().unwrap(), 5.0).unwrap(); let b: Vec<u8> = s.iter().flat_map(|v| v.to_le_bytes()).collect(); std::fs::write("/tmp/seg.f32", b).unwrap(); }

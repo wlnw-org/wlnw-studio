@@ -1,0 +1,14 @@
+Wildlife Network Studio
+Copyright 2026 Arun Rajiah and contributors. Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The source code in this repository is Apache-2.0. The machine-learning models Studio runs are separate works under
+their own licences. They are not stored in this repository; Studio downloads them, or you add them yourself:
+
+- Perch 2.0, by Google. Apache License 2.0. Downloaded on first use from a pinned ONNX conversion by Justin Chu
+  (huggingface.co/justinchuby/Perch-onnx; copy at huggingface.co/Calotriton/perch-v2-onnx), checked by SHA-256.
+  Cite: van Merrienboer et al. (2025), Perch 2.0: The Bittern Lesson for Bioacoustics, arXiv:2508.04665.
+- BirdNET V2.4, by the K. Lisa Yang Center for Conservation Bioacoustics (Cornell Lab of Ornithology) and Chemnitz
+  University of Technology. CC BY-NC-SA 4.0: non-commercial use only. Not distributed with Studio; users who have the
+  model files can add them. Cite: Kahl et al. (2021), Ecological Informatics 61, doi:10.1016/j.ecoinf.2021.101236.
+
+Map tiles in the place picker: OpenFreeMap, with data from OpenStreetMap contributors.

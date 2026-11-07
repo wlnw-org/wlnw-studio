@@ -1,0 +1,105 @@
+import { useCallback, useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { api, type Progress, type Summary } from "./api";
+import Recordings from "./screens/Recordings";
+import Process from "./screens/Process";
+import Review from "./screens/Review";
+import Publish from "./screens/Publish";
+
+type Step = "recordings" | "process" | "review" | "publish";
+const STEPS: { id: Step; label: string; hint: string }[] = [
+  { id: "recordings", label: "Recordings", hint: "Add a drive or folder" },
+  { id: "process", label: "Find species", hint: "BirdNET and Perch, on this computer" },
+  { id: "review", label: "Review", hint: "Check clips, teach the classifier" },
+  { id: "publish", label: "Export and publish", hint: "GBIF, Wildlife Network, files" },
+];
+const RECENT = "wlnw.recent";
+
+function recent(): string[] { try { return JSON.parse(localStorage.getItem(RECENT) ?? "[]"); } catch { return []; } }
+function remember(p: string) { try { localStorage.setItem(RECENT, JSON.stringify([p, ...recent().filter((x) => x !== p)].slice(0, 6))); } catch { /* storage unavailable */ } }
+
+export default function App() {
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [step, setStep] = useState<Step>("recordings");
+  const [error, setError] = useState<string | null>(null);
+  const [live, setLive] = useState<Progress | null>(null);
+
+  const refresh = useCallback(async () => {
+    try { setSummary(await api.summary()); } catch (e) { setError(String(e)); }
+  }, []);
+
+  // A project opened at launch.
+  useEffect(() => { api.summary().then(setSummary).catch(() => {}); }, []);
+
+  useEffect(() => {
+    const un = [
+      listen<Progress>("run-progress", (e) => setLive(e.payload)),
+      listen<string | null>("run-done", (e) => { if (e.payload) setError(e.payload); refresh(); }),
+    ];
+    return () => { un.forEach((p) => p.then((f) => f())); };
+  }, [refresh]);
+
+  async function openFile(file: string) {
+    setError(null);
+    try { await api.openProject(file); remember(file); await refresh(); setStep("recordings"); } catch (e) { setError(String(e)); }
+  }
+  async function newProject() {
+    const file = await save({ title: "New project", defaultPath: "Field season.wlnw", filters: [{ name: "Studio project", extensions: ["wlnw"] }] });
+    if (file) openFile(file);
+  }
+  async function openProject() {
+    const file = await open({ title: "Open project", multiple: false, filters: [{ name: "Studio project", extensions: ["wlnw"] }] });
+    if (typeof file === "string") openFile(file);
+  }
+
+  if (!summary) {
+    return (
+      <main className="home">
+        <div className="home-card">
+          <img src="/logo.svg" alt="" className="home-logo" />
+          <h1>Wildlife Network Studio</h1>
+          <p className="lead">Point it at your recordings. It finds the species on this computer, helps you check them in minutes, and exports them for GBIF or publishes them to Wildlife Network.</p>
+          <div className="row">
+            <button className="primary" onClick={newProject}>New project</button>
+            <button onClick={openProject}>Open project</button>
+          </div>
+          {recent().length > 0 && (
+            <div className="recent">
+              <h3>Recent</h3>
+              {recent().map((p) => <button key={p} className="link" onClick={() => openFile(p)} title={p}>{p.split(/[\\/]/).pop()}</button>)}
+            </div>
+          )}
+          {error && <p className="error">{error}</p>}
+        </div>
+      </main>
+    );
+  }
+
+  const prog = live ?? summary.progress;
+  return (
+    <div className="shell">
+      <aside className="rail">
+        <div className="brand"><img src="/logo.svg" alt="" /><span>Studio</span></div>
+        <div className="project" title={summary.path}><small>Project</small><b>{summary.name}</b></div>
+        <nav>
+          {STEPS.map((s, i) => (
+            <button key={s.id} className={step === s.id ? "step active" : "step"} onClick={() => setStep(s.id)}>
+              <span className="num">{i + 1}</span>
+              <span><b>{s.label}</b><small>{s.hint}</small></span>
+            </button>
+          ))}
+        </nav>
+        {summary.running && <div className="running"><span className="pulse" /> Processing {prog.files_done} of {prog.files_total} recordings</div>}
+        <button className="link small" onClick={() => { setSummary(null); setLive(null); }}>Close project</button>
+      </aside>
+      <main className="content">
+        {error && <div className="banner error" onClick={() => setError(null)}>{error} <span className="dismiss">Dismiss</span></div>}
+        {step === "recordings" && <Recordings summary={summary} refresh={refresh} onError={setError} next={() => setStep("process")} />}
+        {step === "process" && <Process summary={summary} live={live} refresh={refresh} onError={setError} next={() => setStep("review")} />}
+        {step === "review" && <Review summary={summary} refresh={refresh} onError={setError} />}
+        {step === "publish" && <Publish summary={summary} refresh={refresh} onError={setError} />}
+      </main>
+    </div>
+  );
+}

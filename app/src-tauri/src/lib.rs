@@ -1,0 +1,294 @@
+//! Wildlife Network Studio: the desktop shell around wlnw-engine. Every command opens its own connection to the project
+//! file (SQLite in WAL mode), so the long processing run never blocks review or export.
+use base64::Engine as _;
+use serde::Serialize;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tauri::{Emitter, State};
+use wlnw_engine::models::{self, Classifier, ModelInfo};
+use wlnw_engine::{download, export, publish, review, run, scan, store::Project, wnc};
+
+#[derive(Default)]
+struct App {
+    project: Mutex<Option<PathBuf>>,
+    stop: Arc<AtomicBool>,
+    running: Arc<AtomicBool>,
+}
+
+type Models = (Vec<Arc<dyn Classifier>>, Vec<String>);
+static MODELS: Mutex<Option<Arc<Models>>> = Mutex::new(None);
+static DOWNLOADING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static STOP_DOWNLOAD: AtomicBool = AtomicBool::new(false);
+
+type R<T> = Result<T, String>;
+fn err(e: impl std::fmt::Display) -> String { format!("{e:#}") }
+
+/// Where downloaded models go: the app's data folder (per user, survives updates).
+fn install_dir(app: &tauri::AppHandle) -> R<PathBuf> {
+    use tauri::Manager;
+    Ok(app.path().app_data_dir().map_err(err)?.join("models"))
+}
+
+/// Folders searched for model packs, first match wins: WLNW_MODELS, the downloads folder, the app bundle, next to the app.
+fn model_dirs(app: &tauri::AppHandle) -> Vec<PathBuf> {
+    use tauri::Manager;
+    let mut c: Vec<PathBuf> = std::env::var("WLNW_MODELS").ok().map(PathBuf::from).into_iter().collect();
+    if let Ok(d) = install_dir(app) { c.push(d); }
+    if let Ok(d) = app.path().resource_dir() { c.push(d.join("models")); }
+    if let Ok(exe) = std::env::current_exe() { for a in exe.ancestors().skip(1).take(5) { c.push(a.join("models")); } }
+    c
+}
+
+fn models(app: &tauri::AppHandle) -> Arc<Models> {
+    let mut g = MODELS.lock().unwrap();
+    if g.is_none() {
+        let (ms, mut errors) = models::available_in(&model_dirs(app));
+        if ms.is_empty() { errors.push("No model is installed yet: download Perch below (free, about 410 MB).".into()); }
+        *g = Some(Arc::new((ms, errors)));
+    }
+    g.clone().unwrap()
+}
+fn reload_models() { *MODELS.lock().unwrap() = None; }
+fn have(app: &tauri::AppHandle) -> Vec<String> { models(app).0.iter().map(|m| m.info().id.clone()).collect() }
+
+#[derive(Serialize)]
+struct CatalogItem { #[serde(flatten)] pack: download::Pack, installed: bool, downloading: bool, size: u64 }
+
+#[tauri::command]
+fn model_catalog(app: tauri::AppHandle) -> Vec<CatalogItem> {
+    let dirs = model_dirs(&app);
+    let busy = DOWNLOADING.lock().unwrap().clone();
+    download::CATALOG.iter().map(|p| CatalogItem {
+        installed: dirs.iter().any(|d| download::installed(p, d)), downloading: busy.iter().any(|b| b == p.id),
+        size: p.files.iter().map(|f| f.size).sum(), pack: p.clone(),
+    }).collect()
+}
+
+#[derive(Clone, Serialize)]
+struct DownloadEvent { id: String, done: u64, total: u64, finished: bool, error: Option<String> }
+
+#[tauri::command]
+fn download_model(app: tauri::AppHandle, id: String) -> R<()> {
+    let pack = download::CATALOG.iter().find(|p| p.id == id).ok_or("unknown model")?;
+    { let mut b = DOWNLOADING.lock().unwrap(); if b.contains(&id) { return Err("Already downloading.".into()); } b.push(id.clone()); }
+    let dir = install_dir(&app)?;
+    STOP_DOWNLOAD.store(false, Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let r = download::install(pack, &dir, &STOP_DOWNLOAD, |done, total| {
+            let _ = app.emit("model-progress", DownloadEvent { id: id.clone(), done, total, finished: false, error: None });
+        });
+        DOWNLOADING.lock().unwrap().retain(|x| x != &id);
+        reload_models();
+        let _ = app.emit("model-progress", DownloadEvent { id, done: 0, total: 0, finished: true, error: r.err().map(err) });
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn cancel_download() { STOP_DOWNLOAD.store(true, Ordering::SeqCst); }
+
+/// Copies model files the user already has (for example BirdNET's) into the downloads folder.
+#[tauri::command]
+fn add_models_folder(app: tauri::AppHandle, folder: String) -> R<Vec<&'static str>> {
+    let r = download::add_from_folder(Path::new(&folder), &install_dir(&app)?).map_err(err)?;
+    reload_models();
+    Ok(r)
+}
+
+fn path(s: &State<App>) -> R<PathBuf> { s.project.lock().unwrap().clone().ok_or_else(|| "No project is open.".to_string()) }
+fn open(s: &State<App>) -> R<Project> { Project::open(&path(s)?).map_err(err) }
+
+#[derive(Serialize)]
+struct DepOut { #[serde(flatten)] d: wlnw_engine::store::Deployment, models: Vec<String>, perch_region: bool }
+
+#[derive(Serialize)]
+struct Summary {
+    path: String, name: String, deployments: Vec<DepOut>, progress: run::Progress, running: bool,
+    dataset: export::DatasetInfo, models: Vec<ModelInfo>, model_errors: Vec<String>, chosen: Vec<String>, wnc: Option<WncInfo>,
+}
+
+#[derive(Serialize)]
+struct WncInfo { trained_at: String, classes: Vec<(String, String, usize, Option<f64>)> }
+
+#[tauri::command]
+fn open_project(file: String, s: State<App>) -> R<()> {
+    let p = PathBuf::from(&file);
+    Project::open(&p).map_err(err)?;
+    *s.project.lock().unwrap() = Some(p);
+    Ok(())
+}
+
+#[tauri::command]
+fn summary(app: tauri::AppHandle, s: State<App>) -> R<Summary> {
+    let p = open(&s)?;
+    let file = path(&s)?;
+    let m = models(&app);
+    let (ms, errors) = (&m.0, &m.1);
+    let have = have(&app);
+    let plan = run::plan(&p, &have).map_err(err)?;
+    Ok(Summary {
+        name: file.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+        path: file.to_string_lossy().to_string(),
+        deployments: p.deployments().map_err(err)?.into_iter().map(|d| {
+            let perch_region = matches!((d.lat, d.lon), (Some(a), Some(b)) if models::perch_first(a, b));
+            DepOut { models: plan.get(&d.id).cloned().unwrap_or_default(), perch_region, d }
+        }).collect(),
+        progress: run::progress(&p, &plan).map_err(err)?, running: s.running.load(Ordering::Relaxed),
+        dataset: export::info(&p),
+        models: ms.iter().map(|m| m.info().clone()).collect(), model_errors: errors.clone(), chosen: p.chosen_models(),
+        wnc: wnc::pack(&p).map(|k| WncInfo { trained_at: k.trained_at, classes: k.classes.into_iter().map(|c| (c.scientific, c.common, c.positives, c.cv_accuracy)).collect() }),
+    })
+}
+
+#[tauri::command]
+async fn scan_folder(folder: String, s: State<'_, App>) -> R<scan::ScanReport> {
+    let file = path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        scan::scan(&p, Path::new(&folder)).map_err(err)
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+fn update_deployment(id: i64, name: String, lat: Option<f64>, lon: Option<f64>, tz_hours: f64, s: State<App>) -> R<()> {
+    if lat.is_some_and(|v| !(-90.0..=90.0).contains(&v)) || lon.is_some_and(|v| !(-180.0..=180.0).contains(&v)) { return Err("Latitude must be -90 to 90 and longitude -180 to 180.".into()); }
+    open(&s)?.update_deployment(id, &name, lat, lon, (tz_hours * 60.0).round() as i32).map_err(err)
+}
+
+#[tauri::command]
+fn set_setting(key: String, value: String, s: State<App>) -> R<()> {
+    if !["default_threshold", "dataset", "models"].contains(&key.as_str()) { return Err("unknown setting".into()); }
+    open(&s)?.set_setting(&key, &value).map_err(err)
+}
+
+#[tauri::command]
+fn start_run(app: tauri::AppHandle, s: State<App>) -> R<()> {
+    let m = models(&app);
+    if m.0.is_empty() { return Err(m.1.join(" ")); }
+    if s.running.swap(true, Ordering::SeqCst) { return Err("Already running.".into()); }
+    let file = path(&s)?;
+    let (stop, running) = (s.stop.clone(), s.running.clone());
+    stop.store(false, Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let ms = models(&app).0.clone();
+        let result = Project::open(&file).map_err(err).and_then(|p| run::run(&p, &ms, &stop, |pr| { let _ = app.emit("run-progress", pr); }).map_err(err));
+        running.store(false, Ordering::SeqCst);
+        let _ = app.emit("run-done", result.err());
+    });
+    Ok(())
+}
+
+#[tauri::command]
+fn stop_run(s: State<App>) { s.stop.store(true, Ordering::SeqCst); }
+
+#[tauri::command]
+fn species(s: State<App>) -> R<Vec<review::SpeciesRow>> { review::species(&open(&s)?).map_err(err) }
+
+#[tauri::command]
+fn review_queue(label: i64, model: String, n: usize, s: State<App>) -> R<Vec<wlnw_engine::store::Detection>> { review::queue(&open(&s)?, label, &model, n).map_err(err) }
+
+#[derive(Serialize)]
+struct ClipOut { wav: String, spec: String, width: usize, height: usize, offset_s: f64, window_s: f64, total_s: f64, max_khz: f64 }
+
+#[tauri::command]
+async fn clip(file: String, start_s: f64, end_s: f64) -> R<ClipOut> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let c = review::clip(Path::new(&file), start_s, end_s).map_err(err)?;
+        let b = base64::engine::general_purpose::STANDARD;
+        Ok(ClipOut { wav: b.encode(&c.wav), spec: b.encode(&c.spec), width: c.width, height: c.height, offset_s: c.offset_s, window_s: c.window_s, total_s: c.total_s, max_khz: c.max_khz })
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+fn set_verdict(detection: i64, verdict: Option<String>, s: State<App>) -> R<()> { review::set_verdict(&open(&s)?, detection, verdict.as_deref()).map_err(err) }
+
+/// "This clip is species X" (or "X is not here"): an example for the Wildlife Network Classifier. Returns false when the
+/// recording has not been through Perch yet (examples need its embedding).
+#[tauri::command]
+fn name_sound(detection: i64, scientific: String, common: String, present: bool, s: State<App>) -> R<bool> {
+    let p = open(&s)?;
+    match wnc::window_for(&p, detection).map_err(err)? {
+        Some(w) => { wnc::add_example(&p, w, &scientific, &common, present).map_err(err)?; Ok(true) }
+        None => Ok(false),
+    }
+}
+
+#[derive(Serialize)]
+struct SimilarOut { window_id: i64, file_id: i64, path: String, start_s: f64, end_s: f64, similarity: f32, site: String }
+
+#[tauri::command]
+async fn similar(detection: i64, n: usize, s: State<'_, App>) -> R<Vec<SimilarOut>> {
+    let file = path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        let w = wnc::window_for(&p, detection).map_err(err)?.ok_or("This recording has not been through Perch yet, so similar sounds cannot be searched.")?;
+        Ok(wnc::similar(&p, w, n).map_err(err)?.into_iter().map(|x| SimilarOut { window_id: x.window_id, file_id: x.file_id, path: x.path, start_s: x.start_s, end_s: x.end_s, similarity: x.similarity, site: x.site }).collect())
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+fn label_window(window: i64, scientific: String, common: String, present: bool, s: State<App>) -> R<()> {
+    wnc::add_example(&open(&s)?, window, &scientific, &common, present).map_err(err)
+}
+
+#[tauri::command]
+async fn train_wnc(s: State<'_, App>) -> R<wnc::TrainReport> {
+    let file = path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || wnc::train(&Project::open(&file).map_err(err)?).map_err(err)).await.map_err(err)?
+}
+
+#[tauri::command]
+fn wnc_export(out: String, s: State<App>) -> R<()> {
+    let p = open(&s)?;
+    let k = wnc::pack(&p).ok_or("Nothing trained yet.")?;
+    std::fs::write(out, serde_json::to_string_pretty(&k).map_err(err)?).map_err(err)
+}
+
+#[tauri::command]
+async fn wnc_import(file: String, s: State<'_, App>) -> R<usize> {
+    let proj = path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&proj).map_err(err)?;
+        wnc::import(&p, &std::fs::read_to_string(&file).map_err(err)?).map_err(err)
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+async fn export_to(format: String, out: String, s: State<'_, App>) -> R<usize> {
+    let file = path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        let o = Path::new(&out);
+        match format.as_str() {
+            "csv" => export::csv(&p, o), "wdx" => export::wdx(&p, o), "dwca" => export::dwca(&p, o),
+            "raven" => export::raven_audacity(&p, o), _ => return Err("unknown format".into()),
+        }.map_err(err)
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+async fn publish_to(app: tauri::AppHandle, dataset: String, key: String, submit: bool, s: State<'_, App>) -> R<publish::PublishReport> {
+    let file = path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        publish::publish(&p, dataset.trim(), key.trim(), submit, |d, t| { let _ = app.emit("publish-progress", (d, t)); }).map_err(err)
+    }).await.map_err(err)?
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .manage({
+            // A project file given at launch (double-click or `open --args`) opens straight away.
+            let a = App::default();
+            if let Some(f) = std::env::args().skip(1).find(|x| x.ends_with(".wlnw") && Path::new(x).exists()) { *a.project.lock().unwrap() = Some(PathBuf::from(f)); }
+            a
+        })
+        .invoke_handler(tauri::generate_handler![open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
+            species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to])
+        .run(tauri::generate_context!())
+        .expect("error while running Wildlife Network Studio");
+}
