@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import maplibregl from "maplibre-gl";
+import { Map as MLMap, Marker, NavigationControl, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+// MapLibre 6 runs its tile worker as an ES module; Vite bundles it (with the shared chunk it imports) and gives its URL.
+import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
+
+setWorkerUrl(workerUrl);
 
 const STYLE = "https://tiles.openfreemap.org/styles/positron";
 
@@ -14,12 +18,12 @@ export default function MapPicker({ lat, lon, title, onPick, onClose }: { lat: n
 
   useEffect(() => {
     if (!box.current) return;
-    const map = new maplibregl.Map({
+    const map = new MLMap({
       container: box.current, style: STYLE, attributionControl: { compact: true },
       center: pt ? [pt[1], pt[0]] : [40, 10], zoom: pt ? 8 : 1.6,
     });
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    const marker = new maplibregl.Marker({ draggable: true, color: "#0e7c66" });
+    map.addControl(new NavigationControl({ showCompass: false }), "top-right");
+    const marker = new Marker({ draggable: true, color: "#0e7c66" });
     if (pt) marker.setLngLat([pt[1], pt[0]]).addTo(map);
     const set = (lng: number, la: number) => { marker.setLngLat([lng, la]).addTo(map); setPt([Number(la.toFixed(5)), Number(lng.toFixed(5))]); };
     map.on("click", (e) => set(e.lngLat.lng, e.lngLat.lat));
