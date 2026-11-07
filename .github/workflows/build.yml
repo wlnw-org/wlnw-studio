@@ -172,7 +172,14 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ startsWith(matrix.target, 'macos') && secrets.APPLE_SIGNING_IDENTITY || '' }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-        run: pnpm tauri build --bundles ${{ matrix.target == 'windows-x64' && 'nsis,msi --config src-tauri/tauri.sign.json' || 'app,dmg' }}
+        shell: bash
+        run: |
+          if [ "${{ matrix.target }}" = "windows-x64" ]; then
+            pnpm tauri build --bundles nsis,msi --config src-tauri/tauri.sign.json
+          else
+            # hdiutil on hosted Macs sometimes finds the disk image busy; a second try reuses the compiled app.
+            for i in 1 2 3; do pnpm tauri build --bundles app,dmg && break; [ "$i" = 3 ] && exit 1; echo "::warning::bundling failed, retrying"; rm -rf ../target/release/bundle/dmg; sleep 15; done
+          fi
 
       - name: Check signatures (Windows)
         if: matrix.target == 'windows-x64'
