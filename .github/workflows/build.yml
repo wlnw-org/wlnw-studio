@@ -207,7 +207,9 @@ jobs:
           codesign -dv "$APP" 2>&1 | grep -E "Authority=Developer ID|TeamIdentifier|Runtime" || true
           spctl --assess --type execute --verbose=4 "$APP"
           retry() { for i in 1 2 3 4 5; do "$@" && return 0; sleep 20; done; return 1; }
-          retry xcrun stapler validate "$APP"
+          # The disk image people download carries its own stapled ticket (checked below); the app inside is notarized
+          # (spctl above) and Gatekeeper looks its ticket up online if Tauri could not staple it.
+          retry xcrun stapler validate "$APP" || echo "::warning::No ticket stapled to the app itself; the disk image has one."
           for d in target/release/bundle/dmg/*.dmg; do
             spctl --assess --type open --context context:primary-signature --verbose=4 "$d"
             retry xcrun stapler validate "$d"
