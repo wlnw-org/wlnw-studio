@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, fmtHours, modelName, type Deployment, type Summary } from "../api";
+import { api, fmtHours, modelName, modelTag, type Deployment, type Summary } from "../api";
 import MapPicker from "../MapPicker";
 
 /** Add recordings, then confirm each recorder's place and time zone (filled in from the files when they carry it). */
@@ -15,6 +15,21 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
       const r = await api.scanFolder(folder);
       setReport(`${r.found.toLocaleString()} recordings found, ${r.added.toLocaleString()} new, in ${r.deployments} ${r.deployments === 1 ? "recorder" : "recorders"}.` +
         (r.without_time ? ` ${r.without_time.toLocaleString()} have no date in their name or metadata and will be skipped for publishing.` : ""));
+      refresh();
+    } catch (e) { onError(String(e)); }
+    setBusy(false);
+  }
+  async function importResults(folder: boolean) {
+    const f = await open(folder ? { title: "Choose a folder of results tables", directory: true, multiple: false }
+      : { title: "Choose a results table", multiple: false, filters: [{ name: "Results table", extensions: ["csv", "txt"] }] });
+    if (typeof f !== "string") return;
+    setBusy(true); setReport(null);
+    try {
+      const r = await api.importResults(f);
+      setReport(`${r.added.toLocaleString()} new detections from ${r.model.split(", ").map(modelTag).join(" and ")}: ${r.matched.toLocaleString()} of ${r.rows.toLocaleString()} rows matched to recordings in this project.` +
+        (r.unmatched ? ` ${r.unmatched.toLocaleString()} rows did not match a recording here (for example ${r.unmatched_examples.slice(0, 3).join(", ")}). Add those recordings first, then import again: nothing is added twice.` : "") +
+        (r.no_species ? ` ${r.no_species.toLocaleString()} rows had no species (noise or no ID)${r.unknown_names.length ? `, or a name Studio did not know: ${r.unknown_names.slice(0, 5).join(", ")}` : ""}.` : "") +
+        (r.added ? " Review them on the Review screen." : ""));
       refresh();
     } catch (e) { onError(String(e)); }
     setBusy(false);
@@ -42,6 +57,16 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
             <thead><tr><th>Recorder</th><th>Files</th><th>Place</th><th>Times are UTC +</th><th>Models</th><th /></tr></thead>
             <tbody>{deps.map((d) => <Row key={d.id} d={d} onSaved={refresh} onError={onError} />)}</tbody>
           </table>
+          <div className="card import-card">
+            <h3>Import results from another tool</h3>
+            <p className="muted">Already ran BirdNET-Analyzer, BirdNET-Pi, BirdNET-Go or Kaleidoscope on these recordings? Import their results to review and publish them here without processing the audio again.
+              Studio reads BirdNET-Analyzer CSV and Raven selection tables, BirdNET-Pi and BirdNET-Go detection exports, and Kaleidoscope id.csv. Each row is matched to a recording added above by its path or file name (BirdNET-Pi and Go rows by date and time).
+              Kaleidoscope manual IDs count as review answers.</p>
+            <div className="row tight">
+              <button onClick={() => importResults(false)} disabled={busy}>Import a results file</button>
+              <button onClick={() => importResults(true)} disabled={busy}>Import a folder of results</button>
+            </div>
+          </div>
           <div className="foot"><button className="primary" onClick={next}>Next: find species</button></div>
         </>
       )}

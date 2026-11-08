@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { api, modelName, modelTag, type Clip, type Detection, type Similar, type SpeciesRow, type Summary } from "../api";
+import { api, isImported, modelName, modelTag, type AgreementReport, type Clip, type Detection, type Similar, type SpeciesRow, type Summary } from "../api";
 
 const PER_ROUND = 18;
 
@@ -15,12 +15,13 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
   const [filter, setFilter] = useState("");
   const [training, setTraining] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  const [pane, setPane] = useState<"clips" | "agree">("clips");
 
   const load = useCallback(async () => { try { setRows(await api.species()); } catch (e) { onError(String(e)); } }, [onError]);
   useEffect(() => { load(); }, [load]);
 
   async function pick(label: number, model: string) {
-    setSel({ label, model }); setI(0);
+    setSel({ label, model }); setI(0); setPane("clips");
     try { setQueue(await api.reviewQueue(label, model, PER_ROUND)); } catch (e) { onError(String(e)); }
   }
   const verdict = useCallback(async (v: "yes" | "no" | "unsure") => {
@@ -71,6 +72,7 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
           </div>
           {note && <small className="block note-sm">{note}</small>}
         </div>
+        <SecondReviewer onCompare={() => setPane("agree")} onError={onError} />
         <input className="search" placeholder={`Search ${rows.length} species`} value={filter} onChange={(e) => setFilter(e.target.value)} />
         <ul>
           {shown.map((r) => (
@@ -87,7 +89,7 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
         {rows.length === 0 && <p className="muted pad">No detections yet. Process some recordings first.</p>}
       </div>
       <div className="clips">
-        {!row ? (
+        {pane === "agree" ? <Agreement onChanged={load} onError={onError} /> : !row ? (
           <div className="empty">
             <h2>Review</h2>
             <p>Pick a species. You hear a few clips from every confidence level, from sure to doubtful. Mark each one. After 8 answers Studio sets that species&apos; threshold so that what is kept is right at least 90% of the time.</p>
@@ -126,6 +128,118 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
   );
 }
 
+/** Two people review the same project separately: save my answers for the other person, load theirs, compare. */
+function SecondReviewer({ onCompare, onError }: { onCompare: () => void; onError: (e: string) => void }) {
+  const [name, setName] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => { api.reviewerName().then((n) => setName(n ?? "")).catch(() => {}); }, []);
+  async function saveMine() {
+    const out = await save({ title: "Save your review answers", defaultPath: `${name.trim().replace(/[^\w-]+/g, "-") || "my"}-answers.wlnr`, filters: [{ name: "Review answers", extensions: ["wlnr"] }] });
+    if (out) try { const n = await api.answersExport(out, name.trim() || null); setMsg(`${n.toLocaleString()} answers saved. Send the file to the other reviewer.`); } catch (e) { onError(String(e)); }
+  }
+  async function loadOther() {
+    const f = await open({ title: "Load another reviewer's answers", multiple: false, filters: [{ name: "Review answers", extensions: ["wlnr"] }] });
+    if (typeof f !== "string") return;
+    try {
+      const r = await api.answersLoad(f);
+      setMsg(`${r.matched.toLocaleString()} of ${r.answers.toLocaleString()} answers from ${r.reviewer} matched detections here.` + (r.unmatched ? ` ${r.unmatched.toLocaleString()} did not: their copy may have been processed differently.` : ""));
+      onCompare();
+    } catch (e) { onError(String(e)); }
+  }
+  return (
+    <details className="wnc-card">
+      <summary><b>Second reviewer</b></summary>
+      <small className="muted block">Two people review the same recordings on their own, then compare. Your own answers are never overwritten.</small>
+      <input className="search" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name (optional)" aria-label="Your name" />
+      <div className="row tight">
+        <button className="small-btn" onClick={saveMine}>Save my answers</button>
+        <button className="small-btn" onClick={loadOther}>Load other answers</button>
+        <button className="small-btn" onClick={onCompare}>Compare</button>
+      </div>
+      {msg && <small className="block note-sm">{msg}</small>}
+    </details>
+  );
+}
+
+const pct = (v: number | null) => (v == null ? "" : `${Math.round(v)}%`);
+
+/** Agreement per species with the other reviewer, and the disagreements to settle one by one. */
+function Agreement({ onChanged, onError }: { onChanged: () => void; onError: (e: string) => void }) {
+  const [rep, setRep] = useState<AgreementReport | null>(null);
+  const [cur, setCur] = useState<number | null>(null);
+  const load = useCallback(async (who: string | null) => { try { setRep(await api.agreementReport(who)); } catch (e) { onError(String(e)); } }, [onError]);
+  useEffect(() => { load(null); }, [load]);
+  const list = rep?.disagreements ?? [];
+  const d = cur != null ? list[cur] : undefined;
+  const settle = useCallback(async (v: "yes" | "no" | "unsure") => {
+    if (!rep?.reviewer || !d) return;
+    try {
+      await api.agreementSettle(rep.reviewer, d.id, v);
+      const next = await api.agreementReport(rep.reviewer);
+      setRep(next);
+      setCur(next.disagreements.length ? Math.min(cur ?? 0, next.disagreements.length - 1) : null);
+      onChanged();
+    } catch (e) { onError(String(e)); }
+  }, [rep, d, cur, onChanged, onError]);
+  const move = useCallback((k: number) => setCur((x) => Math.max(0, Math.min(list.length - 1, (x ?? 0) + k))), [list.length]);
+  if (!rep) return <p className="muted">Loading...</p>;
+  if (!rep.reviewer) return (
+    <div className="empty"><h2>Second reviewer</h2>
+      <p>Ask a colleague to open a copy of this project, review on their own, and use <b>Save my answers</b>. Load their file with <b>Load other answers</b> to see where you agree, species by species.</p></div>
+  );
+  const who = rep.reviewer;
+  const sp = (x: { common: string; scientific: string }) => x.common || x.scientific;
+  return (
+    <>
+      <header className="head">
+        <div>
+          <h2>Agreement with {who}</h2>
+          <p className="muted">Detections you both reviewed. Agreement and kappa count yes and no answers only (not sure is left out). Kappa corrects for agreeing by chance: 1 is full agreement, 0 is no better than chance. Settling a disagreement sets the final answer but does not change these figures.</p>
+        </div>
+        {rep.reviewers.length > 1 && <select value={who} onChange={(e) => { setCur(null); load(e.target.value); }} aria-label="Reviewer">{rep.reviewers.map((r) => <option key={r}>{r}</option>)}</select>}
+      </header>
+      {d ? (
+        <div className="card">
+          <p><b>{sp(d)}</b> <span className={`tag model-${d.model}`}>{modelTag(d.model)}</span> You said <b>{d.verdict ?? "nothing"}</b>, {who} said <b>{d.other}</b>. Listen again and choose the final answer. ({(cur ?? 0) + 1} of {list.length})</p>
+          <ClipView key={d.id} d={d} onVerdict={settle} onMove={move} />
+          <div className="row tight"><button onClick={() => setCur(null)}>Back to the table</button></div>
+        </div>
+      ) : (
+        <>
+          <table className="grid">
+            <thead><tr><th>Species</th><th title="Detections you both reviewed">Both reviewed</th><th title="Both answered yes or no">Yes or no</th><th>Agree</th><th>Kappa</th></tr></thead>
+            <tbody>
+              {[rep.overall, ...rep.species].map((x, k) => (
+                <tr key={x.scientific} className={k === 0 ? "total" : ""}>
+                  <td>{k === 0 ? <b>All species</b> : <>{sp(x)} {x.common && <i className="muted">{x.scientific}</i>}</>}</td>
+                  <td>{x.both}</td><td title={`Both yes ${x.yy}, both no ${x.nn}, you yes and ${who} no ${x.yn}, you no and ${who} yes ${x.ny}`}>{x.yes_no}</td>
+                  <td>{pct(x.percent)}</td>
+                  <td title={x.kappa == null && x.yes_no ? "Not defined: you both gave the same answer every time" : ""}>{x.kappa == null ? (x.yes_no ? "n/a" : "") : x.kappa.toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="card disagree">
+            <h3>Disagreements to settle ({list.length}){rep.settled ? <small className="muted"> {rep.settled} settled</small> : null}</h3>
+            {list.length === 0 ? <p className="muted">None left.</p> : (
+              <>
+                <div className="row tight"><button className="primary" onClick={() => setCur(0)}>Settle them one by one</button></div>
+                {list.map((x, k) => (
+                  <div key={x.id} className="sim-row">
+                    <button className="small-btn" onClick={() => setCur(k)}>Open</button>
+                    <span className="small"><b>{sp(x)}</b> {modelTag(x.model)}, {x.path.split(/[\\/]/).pop()} at {x.start_s.toFixed(0)} s</span>
+                    <span className="small">You: {x.verdict}, {who}: {x.other}</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 /** Name the sound in this clip (any species, even one no model knows) and find more like it. */
 function Teach({ d, onError }: { d: Detection; onError: (e: string) => void }) {
   const [name, setName] = useState("");
@@ -157,7 +271,8 @@ function Teach({ d, onError }: { d: Detection; onError: (e: string) => void }) {
       <div className="row tight">
         <button onClick={() => nameIt(true)}>This is {sci}</button>
         <button onClick={() => nameIt(false)}>{sci} is not here</button>
-        <button onClick={findMore}>Find more like this</button>
+        {/* Imported results have no Perch embeddings to search. */}
+        {!isImported(d.model) && <button onClick={findMore}>Find more like this</button>}
       </div>
       {msg && <p className="note">{msg}</p>}
       {similar && (

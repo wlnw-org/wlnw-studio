@@ -14,6 +14,12 @@ export interface Clip { wav: string; spec: string; width: number; height: number
 export interface ScanReport { found: number; added: number; without_time: number; deployments: number }
 export interface PublishReport { sent: number; added: number; duplicates: number; left_out: number; status: string | null }
 
+export interface ImportReport { rows: number; matched: number; added: number; unmatched: number; unmatched_examples: string[]; no_species: number; unknown_names: string[]; tables: number; model: string }
+export interface LoadReport { reviewer: string; answers: number; matched: number; unmatched: number }
+export interface SpeciesAgreement { scientific: string; common: string; both: number; yes_no: number; yy: number; yn: number; ny: number; nn: number; percent: number | null; kappa: number | null }
+export interface Disagreement extends Detection { other: string }
+export interface AgreementReport { reviewers: string[]; reviewer: string | null; overall: SpeciesAgreement; species: SpeciesAgreement[]; disagreements: Disagreement[]; settled: number }
+
 export interface CatalogItem { id: string; name: string; description: string; licence: string; licence_url: string; downloadable: boolean; note: string; installed: boolean; downloading: boolean; size: number }
 export interface DownloadEvent { id: string; done: number; total: number; finished: boolean; error: string | null }
 
@@ -52,6 +58,12 @@ export const api = {
   wncImport: (file: string) => invoke<number>("wnc_import", { file }),
   setVerdict: (detection: number, verdict: string | null) => invoke<void>("set_verdict", { detection, verdict }),
   exportTo: (format: string, out: string) => invoke<number>("export_to", { format, out }),
+  importResults: (path: string) => invoke<ImportReport>("import_results", { path }),
+  answersExport: (out: string, reviewer: string | null) => invoke<number>("answers_export", { out, reviewer }),
+  answersLoad: (file: string) => invoke<LoadReport>("answers_load", { file }),
+  agreementReport: (reviewer: string | null) => invoke<AgreementReport>("agreement_report", { reviewer }),
+  agreementSettle: (reviewer: string, detection: number, verdict: string) => invoke<void>("agreement_settle", { reviewer, detection, verdict }),
+  reviewerName: () => invoke<string | null>("reviewer_name"),
   publishTo: (dataset: string, key: string, submit: boolean) => invoke<PublishReport>("publish_to", { dataset, key, submit }),
 };
 
@@ -59,9 +71,15 @@ export const fmtHours = (h: number) => (h < 1 ? `${Math.round(h * 60)} min` : `$
 export const fmtBytes = (b: number) => (b > 1e12 ? `${(b / 1e12).toFixed(2)} TB` : b > 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`);
 export const fmtDuration = (s: number) => (s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`);
 
-export const MODEL_NAMES: Record<string, string> = { "birdnet-2.4": "BirdNET", "perch-2.0": "Perch", wnc: "Wildlife Network Classifier" };
+export const MODEL_NAMES: Record<string, string> = {
+  "birdnet-2.4": "BirdNET", "perch-2.0": "Perch", wnc: "Wildlife Network Classifier",
+  "import:birdnet-analyzer": "BirdNET-Analyzer (imported)", "import:birdnet-pi": "BirdNET-Pi or Go (imported)", "import:kaleidoscope": "Kaleidoscope (imported)",
+};
 export const modelName = (id: string) => MODEL_NAMES[id] ?? id;
-export const modelTag = (id: string) => (id === "wnc" ? "WN Classifier" : modelName(id));
+/** Results imported from another tool: no audio was processed in Studio, so there are no embeddings to search. */
+export const isImported = (id: string) => id.startsWith("import:");
+const TAGS: Record<string, string> = { wnc: "WN Classifier", "import:birdnet-analyzer": "BirdNET-Analyzer", "import:birdnet-pi": "BirdNET-Pi/Go", "import:kaleidoscope": "Kaleidoscope" };
+export const modelTag = (id: string) => TAGS[id] ?? modelName(id);
 
 /** SQLite's UTC "YYYY-MM-DD HH:MM:SS" as local date and time. */
 export const fmtWhen = (utc: string | null) => {

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use wlnw_engine::models::{self, Classifier, ModelInfo};
-use wlnw_engine::{download, export, files, history, publish, review, run, scan, store::Project, wnc};
+use wlnw_engine::{agreement, download, export, import, files, history, publish, review, run, scan, store::Project, wnc};
 
 #[derive(Default)]
 struct App {
@@ -278,7 +278,8 @@ async fn export_to(format: String, out: String, s: State<'_, App>) -> R<usize> {
         let t = history::now(&p);
         let (r, name) = match format.as_str() {
             "csv" => (export::csv(&p, o), "CSV"), "wdx" => (export::wdx(&p, o), "WDX"), "dwca" => (export::dwca(&p, o), "a Darwin Core Archive"),
-            "raven" => (export::raven_audacity(&p, o), "Raven and Audacity tables"), _ => return Err("unknown format".into()),
+            "raven" => (export::raven_audacity(&p, o), "Raven and Audacity tables"), "kaleidoscope" => (export::kaleidoscope(&p, o), "a Kaleidoscope id.csv"),
+            _ => return Err("unknown format".into()),
         };
         history::log(&p, "export", &t, &r, |k| format!("Exported {} detections as {name} to {out}", history::n(*k as i64)), "Export failed");
         r.map_err(err)
@@ -314,6 +315,49 @@ fn retry_failed(file: Option<i64>, s: State<App>) -> R<usize> {
     files::retry_failed(&open(&s)?, file).map_err(err)
 }
 
+/// Results from another tool (a table or a folder of them), matched to the recordings already in the project.
+#[tauri::command]
+async fn import_results(app: tauri::AppHandle, path: String, s: State<'_, App>) -> R<import::ImportReport> {
+    let file = crate::path(&s)?;
+    // Installed models' labels turn common names (Raven tables carry no scientific name) into scientific names.
+    let labels: Vec<models::Label> = models(&app).0.iter().flat_map(|m| m.labels().to_vec()).collect();
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        let t = history::now(&p);
+        let r = import::import(&p, Path::new(&path), &labels);
+        history::log(&p, "import", &t, &r, |x| import::summary(x, &path), "Import failed");
+        r.map_err(err)
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+fn answers_export(out: String, reviewer: Option<String>, s: State<App>) -> R<usize> {
+    let p = open(&s)?;
+    let t = history::now(&p);
+    let r = agreement::export(&p, Path::new(&out), reviewer.as_deref());
+    history::log(&p, "agreement", &t, &r, |n| format!("Saved {} review answers for a second reviewer to {out}", history::n(*n as i64)), "Saving answers failed");
+    r.map_err(err)
+}
+
+#[tauri::command]
+fn answers_load(file: String, s: State<App>) -> R<agreement::LoadReport> {
+    let p = open(&s)?;
+    let t = history::now(&p);
+    let r = agreement::load(&p, Path::new(&file), None);
+    history::log(&p, "agreement", &t, &r, |x| format!("Loaded {} answers from {}: {} matched to detections here, {} not found", history::n(x.answers as i64), x.reviewer,
+        history::n(x.matched as i64), history::n(x.unmatched as i64)), "Loading answers failed");
+    r.map_err(err)
+}
+
+#[tauri::command]
+fn agreement_report(reviewer: Option<String>, s: State<App>) -> R<agreement::Report> { agreement::report(&open(&s)?, reviewer.as_deref()).map_err(err) }
+
+#[tauri::command]
+fn agreement_settle(reviewer: String, detection: i64, verdict: String, s: State<App>) -> R<()> { agreement::settle(&open(&s)?, &reviewer, detection, &verdict).map_err(err) }
+
+#[tauri::command]
+fn reviewer_name(s: State<App>) -> R<Option<String>> { open(&s)?.setting("reviewer").map_err(err) }
+
 #[tauri::command]
 fn history_list(s: State<App>) -> R<Vec<history::Entry>> { history::list(&open(&s)?, 500).map_err(err) }
 
@@ -330,7 +374,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
             species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
-            list_files, export_file_list, retry_failed, history_list])
+            list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_settle, reviewer_name])
         .run(tauri::generate_context!())
         .expect("error while running Wildlife Network Studio");
 }

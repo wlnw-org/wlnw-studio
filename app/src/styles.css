@@ -157,3 +157,7 @@ nav.secondary .step { padding-left: 42px; }
 .history .h-paused, .history .h-running { border-left-color: var(--accent); }
 .history .h-top { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
 .history p { margin: 4px 0 0; overflow-wrap: anywhere; }
+.import-card { margin-top: 16px; }
+.wnc-card > summary { cursor: pointer; } .wnc-card .search { margin: 6px 0 0; }
+.grid tr.total td { background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+.disagree { margin-top: 16px; }
