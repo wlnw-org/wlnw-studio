@@ -10,7 +10,7 @@ import Files from "./screens/Files";
 import History from "./screens/History";
 import { OnlineSetting } from "./Online";
 import Images from "./screens/Images";
-import { FeedbackLink } from "./Feedback";
+import { FeedbackLink, HelpLink } from "./Feedback";
 
 type Step = "recordings" | "process" | "review" | "images" | "publish" | "files" | "history";
 const STEPS: { id: Step; label: string; hint: string }[] = [
@@ -78,7 +78,8 @@ export default function App() {
           )}
           {error && <p className="error">{error}</p>}
           <OnlineSetting />
-          <FeedbackLink />
+          <HelpLink />
+        <FeedbackLink />
         </div>
       </main>
     );
@@ -108,6 +109,7 @@ export default function App() {
         </nav>
         {summary.running && <div className="running"><span className="pulse" /> {prog.files_total > 0 && prog.files_done < prog.files_total ? `Processing ${prog.files_done} of ${prog.files_total} recordings` : `Processing ${prog.images_done} of ${prog.images_total} images`}</div>}
         <OnlineSetting />
+        <HelpLink />
         <FeedbackLink />
         <button className="link small" onClick={() => { setSummary(null); setLive(null); }}>Close project</button>
       </aside>

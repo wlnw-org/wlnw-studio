@@ -14,3 +14,8 @@ export function FeedbackLink() {
   }
   return <button className="link small" onClick={go} title="Opens a form on wlnw.org in your browser">Send feedback or report a problem</button>;
 }
+
+/** Opens the how-to guides for Studio on wlnw.org. */
+export function HelpLink() {
+  return <button className="link small" onClick={() => openUrl("https://wlnw.org/help/studio").catch(() => {})} title="Opens the guides on wlnw.org in your browser">Help and how-to guides</button>;
+}
