@@ -38,6 +38,7 @@ export function OnlineSetting() {
       <small className="muted block">Shows which species are known near each recorder, usual arrival weeks, protected areas and species photos from wlnw.org.
         Studio sends only each recorder&apos;s position rounded to about 10 km and species names. Never audio, files or results.
         Answers are kept in the project for 30 days, so they also work offline.</small>
+      <ShareSetting />
     </details>
   );
 }
@@ -118,6 +119,51 @@ export function AroundRecorders({ deps }: { deps: Deployment[] }) {
         </p>
       ))}
       <small className="muted">From wlnw.org, kept in this project. Turn this off in Settings.</small>
+    </div>
+  );
+}
+
+/** 64 hex characters from the system's secure random source: the only thing that can delete what this computer shared. */
+function newKey(): string {
+  const b = new Uint8Array(32);
+  crypto.getRandomValues(b);
+  return Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+/** Opt-in: "Share my checked answers" to train open regional classifiers, with exactly what is sent and a delete button. */
+export function ShareSetting() {
+  const [st, setSt] = useState<{ enabled: boolean; has_key: boolean; shared: number; pending: number } | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const load = useCallback(() => { api.shareStatus().then(setSt).catch(() => {}); }, []);
+  useEffect(() => {
+    load();
+    const un = listen<string | null>("share-done", (e) => { if (e.payload) setNote(e.payload); load(); });
+    return () => { un.then((f) => f()); };
+  }, [load]);
+  async function toggle(on: boolean) {
+    try { await api.setShare(on, newKey()); load(); if (on) api.shareNow().catch(() => {}); } catch (e) { setNote(String(e)); }
+  }
+  async function remove() {
+    if (!confirm("Delete every answer this computer has shared with Wildlife Network? This cannot be undone, and sharing is turned off.")) return;
+    try { const n = await api.shareDelete(); setNote(`Deleted ${n.toLocaleString()} shared answers from wlnw.org. Sharing is off.`); load(); }
+    catch { setNote("Could not reach wlnw.org. Try again when you are online."); }
+  }
+  if (!st) return null;
+  return (
+    <div className="share-setting">
+      <label className="switch">
+        <input type="checkbox" checked={st.enabled} onChange={(e) => toggle(e.target.checked)} />
+        <span>Share my checked answers to improve species ID (off unless you turn it on)</span>
+      </label>
+      <small className="muted block">
+        Helps build free regional classifiers for places that BirdNET and Perch know poorly. For each clip you answered yes or no, or a sound you named,
+        Studio sends the species, your answer, the clip&apos;s Perch embedding (1,536 numbers that describe the sound; not audio and cannot be played back),
+        the recorder&apos;s place rounded to about 100 km, and the year and week. Never audio, file or project names, exact times, or anything about you.
+        Shared answers are open data (CC0). <button className="link inline" onClick={() => openUrl("https://wlnw.org/privacy#shared-answers").catch(() => {})}>Details</button>
+      </small>
+      {(st.enabled || st.shared > 0) && <small className="muted block">This project: {st.shared.toLocaleString()} shared{st.enabled && st.pending > 0 ? `, ${st.pending.toLocaleString()} to send` : ""}.</small>}
+      {st.has_key && <button className="link small" onClick={remove}>Delete everything I shared</button>}
+      {note && <small className="block">{note}</small>}
     </div>
   );
 }

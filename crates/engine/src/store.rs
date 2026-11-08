@@ -75,6 +75,8 @@ CREATE TABLE IF NOT EXISTS examples (window_id INTEGER NOT NULL REFERENCES windo
 -- Settling a disagreement writes reviews and keeps the first answer in mine_before, so agreement figures do not change.
 CREATE TABLE IF NOT EXISTS reviews_other (reviewer TEXT NOT NULL, detection_id INTEGER NOT NULL REFERENCES detections(id) ON DELETE CASCADE,
   verdict TEXT NOT NULL CHECK (verdict IN ('yes','no','unsure')), at TEXT NOT NULL, mine_before TEXT, settled_at TEXT, PRIMARY KEY (reviewer, detection_id));
+-- Answers already shared with wlnw.org for open regional classifiers (share.rs): kind 'review' (detection id) or 'example' (window id).
+CREATE TABLE IF NOT EXISTS shared (kind TEXT NOT NULL, ref INTEGER NOT NULL, at TEXT NOT NULL, PRIMARY KEY (kind, ref));
 -- Answers from wlnw.org's public API (online.rs), kept 30 days so the project works offline and carries them.
 CREATE TABLE IF NOT EXISTS web_cache (key TEXT PRIMARY KEY, json TEXT NOT NULL, fetched_at TEXT NOT NULL);
 "#;

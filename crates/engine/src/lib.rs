@@ -19,6 +19,7 @@ pub mod publish;
 pub mod review;
 pub mod run;
 pub mod scan;
+pub mod share;
 pub mod store;
 pub mod wnc;
 

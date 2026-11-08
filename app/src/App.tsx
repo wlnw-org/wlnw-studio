@@ -46,6 +46,17 @@ export default function App() {
     return () => { un.forEach((p) => p.then((f) => f())); };
   }, [refresh]);
 
+  // Opt-in sharing of checked answers (Settings): sent when a project opens, when leaving Review, and every 5 minutes.
+  // Does nothing unless the person turned sharing on.
+  const projectPath = summary?.path;
+  useEffect(() => {
+    if (!projectPath) return;
+    api.shareNow().catch(() => {});
+    const t = setInterval(() => { api.shareNow().catch(() => {}); }, 5 * 60_000);
+    return () => clearInterval(t);
+  }, [projectPath]);
+  useEffect(() => { if (projectPath && step !== "review") api.shareNow().catch(() => {}); }, [projectPath, step]);
+
   async function openFile(file: string) {
     setError(null);
     try { await api.openProject(file); remember(file); await refresh(); setStep("recordings"); } catch (e) { setError(String(e)); }

@@ -198,3 +198,4 @@ nav.secondary .step { padding-left: 42px; }
   background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 12px 14px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.15); }
 .update-banner b { display: block; } .update-banner small { color: var(--muted); } .update-banner small.error { color: var(--bad); }
 .help-links { gap: 20px; justify-content: center; margin-top: 8px; }
+.share-setting { margin-top: 12px; display: grid; gap: 6px; }

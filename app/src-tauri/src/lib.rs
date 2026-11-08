@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use wlnw_engine::models::{self, Classifier, ModelInfo};
-use wlnw_engine::{agreement, camtrap, download, export, import, files, history, images, online, publish, review, run, scan, store::Project, wnc};
+use wlnw_engine::{agreement, camtrap, download, export, import, files, history, images, online, publish, review, run, scan, share, store::Project, wnc};
 
 #[derive(Default)]
 struct App {
@@ -423,6 +423,79 @@ fn set_online_enabled(app: tauri::AppHandle, on: bool) -> R<()> {
     std::fs::write(&p, v.to_string()).map_err(err)
 }
 
+// ---------- Sharing checked answers for open regional classifiers (opt-in, app setting) ----------
+
+static SHARING: AtomicBool = AtomicBool::new(false);
+
+fn read_app_settings(app: &tauri::AppHandle) -> serde_json::Value {
+    app_settings_path(app).and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| serde_json::json!({}))
+}
+fn write_app_settings(app: &tauri::AppHandle, v: &serde_json::Value) -> R<()> {
+    let p = app_settings_path(app).ok_or("no settings folder")?;
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(err)?; }
+    std::fs::write(&p, v.to_string()).map_err(err)
+}
+/// The key, when sharing is on.
+fn share_key(app: &tauri::AppHandle) -> Option<String> {
+    let v = read_app_settings(app);
+    if v["share"].as_bool() != Some(true) { return None; }
+    v["share_key"].as_str().filter(|k| k.len() == 64 && k.chars().all(|c| c.is_ascii_hexdigit())).map(str::to_string)
+}
+
+#[derive(Serialize)]
+struct ShareStatus { enabled: bool, has_key: bool, shared: i64, pending: usize }
+
+#[tauri::command]
+fn share_status(app: tauri::AppHandle, s: State<App>) -> R<ShareStatus> {
+    let v = read_app_settings(&app);
+    let key = v["share_key"].as_str().unwrap_or("").to_string();
+    let (shared, pending) = match (path(&s), key.len() == 64) {
+        (Ok(_), true) => share::counts(&open(&s)?, &key).map_err(err)?,
+        _ => (0, 0),
+    };
+    Ok(ShareStatus { enabled: v["share"].as_bool() == Some(true), has_key: key.len() == 64, shared, pending })
+}
+
+/// Turns sharing on or off. `new_key` (64 hex characters from the system's secure random source) is used the first time.
+#[tauri::command]
+fn set_share(app: tauri::AppHandle, on: bool, new_key: Option<String>) -> R<()> {
+    let mut v = read_app_settings(&app);
+    v["share"] = serde_json::Value::Bool(on);
+    if on && v["share_key"].as_str().map_or(true, |k| k.len() != 64) {
+        let k = new_key.filter(|k| k.len() == 64 && k.chars().all(|c| c.is_ascii_hexdigit())).ok_or("missing key")?;
+        v["share_key"] = serde_json::Value::String(k.to_lowercase());
+    }
+    write_app_settings(&app, &v)
+}
+
+/// Sends the open project's unshared answers in the background; emits "share-done" with a short message.
+#[tauri::command]
+fn share_now(app: tauri::AppHandle, s: State<App>) -> R<()> {
+    let Some(key) = share_key(&app) else { return Ok(()) };
+    let file = path(&s)?;
+    if SHARING.swap(true, Ordering::SeqCst) { return Ok(()); }
+    std::thread::spawn(move || {
+        let r = Project::open(&file).map_err(err).and_then(|p| share::sync(&p, &key, &share::http_post).map_err(err));
+        SHARING.store(false, Ordering::SeqCst);
+        let msg = match r { Ok(share::Outcome::Sent(n)) => (n > 0).then(|| format!("Shared {n} checked answers.")), Ok(share::Outcome::Paused(m)) => Some(m), Err(_) => None };
+        let _ = app.emit("share-done", msg);
+    });
+    Ok(())
+}
+
+/// Deletes everything shared with this computer's key on wlnw.org, turns sharing off and forgets what was sent.
+#[tauri::command]
+async fn share_delete(app: tauri::AppHandle, s: State<'_, App>) -> R<i64> {
+    let mut v = read_app_settings(&app);
+    let Some(key) = v["share_key"].as_str().map(str::to_string) else { return Ok(0) };
+    let file = path(&s).ok();
+    let n = tauri::async_runtime::spawn_blocking(move || share::delete_all(&key)).await.map_err(err)?.map_err(err)?;
+    v["share"] = serde_json::Value::Bool(false);
+    write_app_settings(&app, &v)?;
+    if let Some(f) = file { if let Ok(p) = Project::open(&f) { let _ = share::forget(&p); } }
+    Ok(n)
+}
+
 /// Fills the project's cache from wlnw.org in the background (recorder positions rounded to about 10 km, species names);
 /// emits "online-updated" as answers arrive. Does nothing when the setting is off or a fill is already running.
 #[tauri::command]
@@ -493,7 +566,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
             species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
             list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_settle, reviewer_name,
-            online_enabled, set_online_enabled, online_prefetch, online_flags, online_species, online_around,
+            online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,
             set_deployment_country, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
         .run(tauri::generate_context!())
         .expect("error while running Wildlife Network Studio");
