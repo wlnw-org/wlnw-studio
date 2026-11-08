@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n";
 
 export interface Deployment { id: number; name: string; folder: string; serial: string | null; model: string | null; lat: number | null; lon: number | null; tz_offset_min: number; tz_known: boolean; files: number; done: number; hours: number; models: string[]; perch_region: boolean; images: number; country: string | null; admin1: string | null }
 export interface Progress { jobs_done: number; jobs_total: number; current_model: string | null; files_done: number; files_total: number; hours_done: number; bytes_done: number; bytes_total: number; detections: number; speed_x: number; eta_s: number | null; current: string | null; errors: number; images_done: number; images_total: number; images_per_s: number }
@@ -101,7 +102,7 @@ export const MODEL_NAMES: Record<string, string> = {
   "birdnet-2.4": "BirdNET", "perch-2.0": "Perch", wnc: "Wildlife Network Classifier", "speciesnet-4.0.3a": "SpeciesNet",
   "import:birdnet-analyzer": "BirdNET-Analyzer (imported)", "import:birdnet-pi": "BirdNET-Pi or Go (imported)", "import:kaleidoscope": "Kaleidoscope (imported)",
 };
-export const modelName = (id: string) => MODEL_NAMES[id] ?? id;
+export const modelName = (id: string) => (MODEL_NAMES[id] ? t(MODEL_NAMES[id]) : id);
 /** Results imported from another tool: no audio was processed in Studio, so there are no embeddings to search. */
 export const isImported = (id: string) => id.startsWith("import:");
 const TAGS: Record<string, string> = { wnc: "WN Classifier", "import:birdnet-analyzer": "BirdNET-Analyzer", "import:birdnet-pi": "BirdNET-Pi/Go", "import:kaleidoscope": "Kaleidoscope" };

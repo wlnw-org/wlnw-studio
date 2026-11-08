@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { useT } from "./i18n";
 
 // Checks the latest GitHub release once on startup (not in dev). Quiet: no network or no update shows nothing.
 export default function UpdateBanner() {
+  const t = useT();
   const [update, setUpdate] = useState<Update | null>(null);
   const [state, setState] = useState<"idle" | "downloading" | "installing" | "error">("idle");
   const [pct, setPct] = useState<number | null>(null);
@@ -38,15 +40,15 @@ export default function UpdateBanner() {
   return (
     <div className="update-banner" role="status">
       <div>
-        <b>Version {update.version} is available</b>
-        {state === "downloading" && <small>Downloading{pct !== null ? ` ${pct}%` : ""}</small>}
-        {state === "installing" && <small>Installing, Studio will restart</small>}
-        {state === "error" && <small className="error">Update failed: {error}</small>}
+        <b>{t("Version {version} is available", { version: update.version })}</b>
+        {state === "downloading" && <small>{pct !== null ? t("Downloading {pct}%", { pct }) : t("Downloading")}</small>}
+        {state === "installing" && <small>{t("Installing, Studio will restart")}</small>}
+        {state === "error" && <small className="error">{t("Update failed: {error}", { error: error ?? "" })}</small>}
       </div>
       {state === "downloading" && pct !== null && <div className="bar"><div style={{ width: `${pct}%` }} /></div>}
       <div className="row">
-        <button className="primary" disabled={busy} onClick={install}>{state === "error" ? "Try again" : "Install and restart"}</button>
-        <button disabled={busy} onClick={() => setUpdate(null)}>Later</button>
+        <button className="primary" disabled={busy} onClick={install}>{state === "error" ? t("Try again") : t("Install and restart")}</button>
+        <button disabled={busy} onClick={() => setUpdate(null)}>{t("Later")}</button>
       </div>
     </div>
   );

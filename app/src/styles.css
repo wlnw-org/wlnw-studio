@@ -166,7 +166,9 @@ nav.secondary .step { padding-left: 42px; }
 
 /* Wildlife Network when online */
 .settings { font-size: 12px; text-align: left; } .settings > summary { cursor: pointer; color: var(--muted); }
-.settings .switch { display: flex; gap: 6px; align-items: center; margin: 6px 0 4px; font-size: 13px; }
+.settings .switch { display: flex; gap: 8px; align-items: center; justify-content: flex-start; margin: 6px 0 4px; font-size: 13px; }
+.settings .switch input { width: auto; flex: none; margin: 0; }
+.settings .switch span { text-align: left; }
 .home-card .settings { margin-top: 24px; }
 .wn-mark { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 6px; border-radius: 50%; font-size: 10px; font-weight: 700; vertical-align: 1px;
   background: color-mix(in srgb, var(--warn) 18%, var(--panel)); color: var(--warn); }

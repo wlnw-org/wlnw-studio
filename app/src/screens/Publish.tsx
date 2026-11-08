@@ -3,11 +3,13 @@ import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, type DatasetInfo, type PublishReport, type Summary } from "../api";
+import { useT } from "../i18n";
 
 const LICENSES: [string, string][] = [["CC0-1.0", "CC0 (public domain)"], ["CC-BY-4.0", "CC BY 4.0 (credit required)"], ["CC-BY-NC-4.0", "CC BY-NC 4.0 (non-commercial)"]];
 
 /** Describe the dataset once; export it for GBIF and other tools, or publish it straight to Wildlife Network. */
 export default function Publish({ summary, refresh, onError }: { summary: Summary; refresh: () => void; onError: (e: string) => void }) {
+  const t = useT();
   const [info, setInfo] = useState<DatasetInfo>(summary.dataset);
   const [saved, setSaved] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
@@ -26,15 +28,15 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
     if (!saved) await saveInfo();
     const base = info.title.replace(/[^\w-]+/g, "-").slice(0, 60) || "detections";
     let out: string | null = null;
-    if (format === "raven") { const d = await open({ title: "Folder for Raven and Audacity tables", directory: true }); out = typeof d === "string" ? d : null; }
-    else if (format === "camtrapdp") { const d = await open({ title: "Empty folder for the Camtrap DP package", directory: true }); out = typeof d === "string" ? d : null; }
+    if (format === "raven") { const d = await open({ title: t("Folder for Raven and Audacity tables"), directory: true }); out = typeof d === "string" ? d : null; }
+    else if (format === "camtrapdp") { const d = await open({ title: t("Empty folder for the Camtrap DP package"), directory: true }); out = typeof d === "string" ? d : null; }
     else {
       const ext = { dwca: "zip", wdx: "ndjson", csv: "csv", kaleidoscope: "csv" }[format]!;
-      out = await save({ title: "Export", defaultPath: format === "kaleidoscope" ? "id.csv" : `${base}${format === "dwca" ? "-dwca" : ""}.${ext}`, filters: [{ name: format === "kaleidoscope" ? "Kaleidoscope id.csv" : format.toUpperCase(), extensions: [ext] }] });
+      out = await save({ title: t("Export"), defaultPath: format === "kaleidoscope" ? "id.csv" : `${base}${format === "dwca" ? "-dwca" : ""}.${ext}`, filters: [{ name: format === "kaleidoscope" ? "Kaleidoscope id.csv" : format.toUpperCase(), extensions: [ext] }] });
     }
     if (!out) return;
     setBusy(true); setMsg(null);
-    try { const n = await api.exportTo(format, out); setMsg(format === "camtrapdp" ? `${n.toLocaleString()} observations exported to ${out}. Images with people were left out, and so were images without a time or a camera without a place.` : `${n.toLocaleString()} detections exported to ${out}.`); } catch (e) { onError(String(e)); }
+    try { const n = await api.exportTo(format, out); setMsg(format === "camtrapdp" ? t("{n} observations exported to {path}. Images with people were left out, and so were images without a time or a camera without a place.", { n: n.toLocaleString(), path: out }) : t("{n} detections exported to {path}.", { n: n.toLocaleString(), path: out })); } catch (e) { onError(String(e)); }
     setBusy(false);
   }
 
@@ -47,46 +49,48 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
 
   return (
     <section>
-      <header className="head"><div><h2>Export and publish</h2>
-        <p className="muted">Only accepted detections leave Studio: in range for their place and week, at or above each species&apos; reviewed threshold, and not marked wrong. Detections you marked yes are always included.</p></div></header>
+      <header className="head"><div><h2>{t("Export and publish")}</h2>
+        <p className="muted">{t("Only accepted detections leave Studio: in range for their place and week, at or above each species' reviewed threshold, and not marked wrong. Detections you marked yes are always included.")}</p></div></header>
 
       <div className="card form">
-        <h3>About this dataset</h3>
-        <label className="field">Title<input value={info.title} onChange={(e) => set({ title: e.target.value })} /></label>
-        <label className="field">Institution<input value={info.institution ?? ""} onChange={(e) => set({ institution: e.target.value || null })} /></label>
-        <label className="field">People to credit, one per line<textarea rows={3} value={info.people.join("\n")} onChange={(e) => set({ people: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} /></label>
-        <label className="field">How it was collected<textarea rows={3} value={info.description ?? ""} onChange={(e) => set({ description: e.target.value || null })} /></label>
-        <label className="field">Licence
-          <select value={info.license} onChange={(e) => set({ license: e.target.value })}>{LICENSES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select>
+        <h3>{t("About this dataset")}</h3>
+        <label className="field">{t("Title")}<input value={info.title} onChange={(e) => set({ title: e.target.value })} /></label>
+        <label className="field">{t("Institution")}<input value={info.institution ?? ""} onChange={(e) => set({ institution: e.target.value || null })} /></label>
+        <label className="field">{t("People to credit, one per line")}<textarea rows={3} value={info.people.join("\n")} onChange={(e) => set({ people: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} /></label>
+        <label className="field">{t("How it was collected")}<textarea rows={3} value={info.description ?? ""} onChange={(e) => set({ description: e.target.value || null })} /></label>
+        <label className="field">{t("Licence")}
+          <select value={info.license} onChange={(e) => set({ license: e.target.value })}>{LICENSES.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</select>
         </label>
-        {!saved && <button onClick={saveInfo}>Save details</button>}
+        {!saved && <button onClick={saveInfo}>{t("Save details")}</button>}
       </div>
 
       <div className="card">
-        <h3>Export files</h3>
+        <h3>{t("Export files")}</h3>
         <div className="exports">
-          <button disabled={busy} onClick={() => exportAs("dwca")}><b>Darwin Core Archive</b><small>For GBIF: upload to your IPT or send to your GBIF node</small></button>
-          <button disabled={busy} onClick={() => exportAs("wdx")}><b>WDX</b><small>Open detection format, one event per line</small></button>
-          <button disabled={busy} onClick={() => exportAs("raven")}><b>Raven and Audacity</b><small>Selection tables and labels next to each recording</small></button>
-          <button disabled={busy} onClick={() => exportAs("csv")}><b>CSV</b><small>One row per detection, for R, Python or a spreadsheet</small></button>
-          <button disabled={busy} onClick={() => exportAs("kaleidoscope")}><b>Kaleidoscope id.csv</b><small>For Kaleidoscope users: your yes answers go in MANUAL ID</small></button>
-          {summary.images && <button disabled={busy} onClick={() => exportAs("camtrapdp")}><b>Camtrap DP</b><small>Camera-trap images: deployments, media and observations, for GBIF, Agouti or camtraptor</small></button>}
+          <button disabled={busy} onClick={() => exportAs("dwca")}><b>Darwin Core Archive</b><small>{t("For GBIF: upload to your IPT or send to your GBIF node")}</small></button>
+          <button disabled={busy} onClick={() => exportAs("wdx")}><b>WDX</b><small>{t("Open detection format, one event per line")}</small></button>
+          <button disabled={busy} onClick={() => exportAs("raven")}><b>{t("Raven and Audacity")}</b><small>{t("Selection tables and labels next to each recording")}</small></button>
+          <button disabled={busy} onClick={() => exportAs("csv")}><b>CSV</b><small>{t("One row per detection, for R, Python or a spreadsheet")}</small></button>
+          <button disabled={busy} onClick={() => exportAs("kaleidoscope")}><b>Kaleidoscope id.csv</b><small>{t("For Kaleidoscope users: your yes answers go in MANUAL ID")}</small></button>
+          {summary.images && <button disabled={busy} onClick={() => exportAs("camtrapdp")}><b>Camtrap DP</b><small>{t("Camera-trap images: deployments, media and observations, for GBIF, Agouti or camtraptor")}</small></button>}
         </div>
         {msg && <p className="note">{msg}</p>}
       </div>
 
       <div className="card form">
-        <h3>Publish to Wildlife Network</h3>
-        <p className="muted">Create a dataset at <button className="link inline" onClick={() => openUrl("https://wlnw.org/datasets/new")}>wlnw.org/datasets</button> (sign in with ORCID), then create its upload key on the dataset page and paste both here. The site checks every record again and credits the dataset by name wherever it is used. Sending again is safe: duplicates are ignored.</p>
-        <label className="field">Dataset id<input value={dataset} onChange={(e) => setDataset(e.target.value)} placeholder="park-acoustic-2024-a1b2c3" /></label>
-        <label className="field">Upload key<input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="wnds_..." autoComplete="off" /></label>
+        <h3>{t("Publish to Wildlife Network")}</h3>
+        <p className="muted">{t("Create a dataset at")} <button className="link inline" onClick={() => openUrl("https://wlnw.org/datasets/new")}>wlnw.org/datasets</button> {t("(sign in with ORCID), then create its upload key on the dataset page and paste both here. The site checks every record again and credits the dataset by name wherever it is used. Sending again is safe: duplicates are ignored.")}</p>
+        <label className="field">{t("Dataset id")}<input value={dataset} onChange={(e) => setDataset(e.target.value)} placeholder="park-acoustic-2024-a1b2c3" /></label>
+        <label className="field">{t("Upload key")}<input type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="wnds_..." autoComplete="off" /></label>
         <div className="row">
-          <button disabled={busy || !dataset || !key} onClick={() => publish(false)}>Send records</button>
-          <button className="primary" disabled={busy || !dataset || !key} onClick={() => publish(true)}>Send and submit</button>
+          <button disabled={busy || !dataset || !key} onClick={() => publish(false)}>{t("Send records")}</button>
+          <button className="primary" disabled={busy || !dataset || !key} onClick={() => publish(true)}>{t("Send and submit")}</button>
         </div>
-        {busy && sent && <p className="muted">Sent {sent[0].toLocaleString()} of {sent[1].toLocaleString()}...</p>}
-        {report && <p className="note">Sent {report.sent.toLocaleString()}: {report.added.toLocaleString()} added, {report.duplicates.toLocaleString()} already there{report.left_out ? `, ${report.left_out.toLocaleString()} left out by the site (name not recognised or below the dataset's cut-off)` : ""}.
-          {report.status === "live" && " The dataset is live."}{report.status === "review" && " Submitted: a reviewer will look at it."}</p>}
+        {busy && sent && <p className="muted">{t("Sent {done} of {total}...", { done: sent[0].toLocaleString(), total: sent[1].toLocaleString() })}</p>}
+        {report && <p className="note">{report.left_out
+          ? t("Sent {sent}: {added} added, {dupes} already there, {left} left out by the site (name not recognised or below the dataset's cut-off).", { sent: report.sent.toLocaleString(), added: report.added.toLocaleString(), dupes: report.duplicates.toLocaleString(), left: report.left_out.toLocaleString() })
+          : t("Sent {sent}: {added} added, {dupes} already there.", { sent: report.sent.toLocaleString(), added: report.added.toLocaleString(), dupes: report.duplicates.toLocaleString() })}
+          {report.status === "live" && " " + t("The dataset is live.")}{report.status === "review" && " " + t("Submitted: a reviewer will look at it.")}</p>}
       </div>
     </section>
   );

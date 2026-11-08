@@ -11,6 +11,7 @@ import History from "./screens/History";
 import { OnlineSetting } from "./Online";
 import Images from "./screens/Images";
 import { ErrorHelp, FeedbackLink, HelpLink, ScreenHelp } from "./Feedback";
+import { useT } from "./i18n";
 
 type Step = "recordings" | "process" | "review" | "images" | "publish" | "files" | "history";
 const STEPS: { id: Step; label: string; hint: string }[] = [
@@ -25,6 +26,7 @@ function recent(): string[] { try { return JSON.parse(localStorage.getItem(RECEN
 function remember(p: string) { try { localStorage.setItem(RECENT, JSON.stringify([p, ...recent().filter((x) => x !== p)].slice(0, 6))); } catch { /* storage unavailable */ } }
 
 export default function App() {
+  const t = useT();
   const [summary, setSummary] = useState<Summary | null>(null);
   const [step, setStep] = useState<Step>("recordings");
   const [error, setError] = useState<string | null>(null);
@@ -62,11 +64,11 @@ export default function App() {
     try { await api.openProject(file); remember(file); await refresh(); setStep("recordings"); } catch (e) { setError(String(e)); }
   }
   async function newProject() {
-    const file = await save({ title: "New project", defaultPath: "Field season.wlnw", filters: [{ name: "Studio project", extensions: ["wlnw"] }] });
+    const file = await save({ title: t("New project"), defaultPath: t("Field season") + ".wlnw", filters: [{ name: t("Studio project"), extensions: ["wlnw"] }] });
     if (file) openFile(file);
   }
   async function openProject() {
-    const file = await open({ title: "Open project", multiple: false, filters: [{ name: "Studio project", extensions: ["wlnw"] }] });
+    const file = await open({ title: t("Open project"), multiple: false, filters: [{ name: t("Studio project"), extensions: ["wlnw"] }] });
     if (typeof file === "string") openFile(file);
   }
 
@@ -76,14 +78,14 @@ export default function App() {
         <div className="home-card">
           <img src="/logo.svg" alt="" className="home-logo" />
           <h1>Wildlife Network Studio</h1>
-          <p className="lead">Point it at your recordings. It finds the species on this computer, helps you check them in minutes, and exports them for GBIF or publishes them to Wildlife Network.</p>
+          <p className="lead">{t("Point it at your recordings. It finds the species on this computer, helps you check them in minutes, and exports them for GBIF or publishes them to Wildlife Network.")}</p>
           <div className="row">
-            <button className="primary" onClick={newProject}>New project</button>
-            <button onClick={openProject}>Open project</button>
+            <button className="primary" onClick={newProject}>{t("New project")}</button>
+            <button onClick={openProject}>{t("Open project")}</button>
           </div>
           {recent().length > 0 && (
             <div className="recent">
-              <h3>Recent</h3>
+              <h3>{t("Recent")}</h3>
               {recent().map((p) => <button key={p} className="link" onClick={() => openFile(p)} title={p}>{p.split(/[\\/]/).pop()}</button>)}
             </div>
           )}
@@ -100,32 +102,32 @@ export default function App() {
     <div className="shell">
       <aside className="rail">
         <div className="brand"><img src="/logo.svg" alt="" /><span>Studio</span></div>
-        <div className="project" title={summary.path}><small>Project</small><b>{summary.name}</b></div>
+        <div className="project" title={summary.path}><small>{t("Project")}</small><b>{summary.name}</b></div>
         <nav>
           {(summary.images ? [...STEPS.slice(0, 3), { id: "images" as Step, label: "Images", hint: "Camera-trap photos by species" }, STEPS[3]] : STEPS).map((s, i) => (
             <button key={s.id} className={step === s.id ? "step active" : "step"} onClick={() => setStep(s.id)}>
               <span className="num">{i + 1}</span>
-              <span><b>{s.label}</b><small>{s.hint}</small></span>
+              <span><b>{t(s.label)}</b><small>{t(s.hint)}</small></span>
             </button>
           ))}
         </nav>
         <nav className="secondary">
           <button className={step === "files" ? "step active" : "step"} onClick={() => { setFilesStatus(undefined); setStep("files"); }}>
-            <span><b>Files</b><small>Every recording and its status</small></span>
+            <span><b>{t("Files")}</b><small>{t("Every recording and its status")}</small></span>
           </button>
           <button className={step === "history" ? "step active" : "step"} onClick={() => setStep("history")}>
-            <span><b>History</b><small>Runs, exports and publishing</small></span>
+            <span><b>{t("History")}</b><small>{t("Runs, exports and publishing")}</small></span>
           </button>
         </nav>
-        {summary.running && <div className="running"><span className="pulse" /> {prog.files_total > 0 && prog.files_done < prog.files_total ? `Processing ${prog.files_done} of ${prog.files_total} recordings` : `Processing ${prog.images_done} of ${prog.images_total} images`}</div>}
+        {summary.running && <div className="running"><span className="pulse" /> {prog.files_total > 0 && prog.files_done < prog.files_total ? t("Processing {done} of {total} recordings", { done: prog.files_done, total: prog.files_total }) : t("Processing {done} of {total} images", { done: prog.images_done, total: prog.images_total })}</div>}
         <OnlineSetting />
         <HelpLink />
         <FeedbackLink />
-        <button className="link small" onClick={() => { setSummary(null); setLive(null); }}>Close project</button>
+        <button className="link small" onClick={() => { setSummary(null); setLive(null); }}>{t("Close project")}</button>
       </aside>
       <main className="content">
         <ScreenHelp step={step} />
-        {error && <div className="banner error" onClick={() => setError(null)}>{error} <ErrorHelp /> <span className="dismiss">Dismiss</span></div>}
+        {error && <div className="banner error" onClick={() => setError(null)}>{error} <ErrorHelp /> <span className="dismiss">{t("Dismiss")}</span></div>}
         {step === "recordings" && <Recordings summary={summary} refresh={refresh} onError={setError} next={() => setStep("process")} />}
         {step === "process" && <Process summary={summary} live={live} refresh={refresh} onError={setError} next={() => setStep("review")} showFiles={(st) => { setFilesStatus(st); setStep("files"); }} />}
         {step === "review" && <Review summary={summary} refresh={refresh} onError={setError} />}
