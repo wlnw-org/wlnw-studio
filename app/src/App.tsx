@@ -10,7 +10,7 @@ import Files from "./screens/Files";
 import History from "./screens/History";
 import { OnlineSetting } from "./Online";
 import Images from "./screens/Images";
-import { FeedbackLink, HelpLink } from "./Feedback";
+import { ErrorHelp, FeedbackLink, HelpLink, ScreenHelp } from "./Feedback";
 
 type Step = "recordings" | "process" | "review" | "images" | "publish" | "files" | "history";
 const STEPS: { id: Step; label: string; hint: string }[] = [
@@ -76,7 +76,7 @@ export default function App() {
               {recent().map((p) => <button key={p} className="link" onClick={() => openFile(p)} title={p}>{p.split(/[\\/]/).pop()}</button>)}
             </div>
           )}
-          {error && <p className="error">{error}</p>}
+          {error && <p className="error">{error} <ErrorHelp /></p>}
           <OnlineSetting />
           <HelpLink />
         <FeedbackLink />
@@ -114,7 +114,8 @@ export default function App() {
         <button className="link small" onClick={() => { setSummary(null); setLive(null); }}>Close project</button>
       </aside>
       <main className="content">
-        {error && <div className="banner error" onClick={() => setError(null)}>{error} <span className="dismiss">Dismiss</span></div>}
+        <ScreenHelp step={step} />
+        {error && <div className="banner error" onClick={() => setError(null)}>{error} <ErrorHelp /> <span className="dismiss">Dismiss</span></div>}
         {step === "recordings" && <Recordings summary={summary} refresh={refresh} onError={setError} next={() => setStep("process")} />}
         {step === "process" && <Process summary={summary} live={live} refresh={refresh} onError={setError} next={() => setStep("review")} showFiles={(st) => { setFilesStatus(st); setStep("files"); }} />}
         {step === "review" && <Review summary={summary} refresh={refresh} onError={setError} />}
