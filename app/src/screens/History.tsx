@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, fmtDuration, fmtWhen, type HistoryEntry, type Summary } from "../api";
+import { useT } from "../i18n";
 
 const KIND: Record<string, string> = { run: "Processing", scan: "Recordings added", train: "Classifier trained", export: "Export", publish: "Published", import: "Results imported", agreement: "Second reviewer" };
 const STATUS: Record<string, string> = { running: "Running", finished: "Finished", paused: "Paused", interrupted: "Interrupted", failed: "Failed" };
@@ -12,6 +13,7 @@ function took(e: HistoryEntry) {
 
 /** Everything done in this project, newest first. Stored in the project file, so it travels with it. */
 export default function History({ summary, onError }: { summary: Summary; onError: (e: string) => void }) {
+  const t = useT();
   const [items, setItems] = useState<HistoryEntry[] | null>(null);
   useEffect(() => {
     let live = true;
@@ -25,11 +27,11 @@ export default function History({ summary, onError }: { summary: Summary; onErro
     <section>
       <header className="head">
         <div>
-          <h2>History</h2>
-          <p className="muted">What has been done in this project and when: processing runs, recordings added, training, exports and publishing. It is saved in the project file, so it moves with the project.</p>
+          <h2>{t("History")}</h2>
+          <p className="muted">{t("What has been done in this project and when: processing runs, recordings added, training, exports and publishing. It is saved in the project file, so it moves with the project.")}</p>
         </div>
       </header>
-      {items && items.length === 0 && <div className="empty">Nothing yet. Each processing run, export and publish will be listed here.</div>}
+      {items && items.length === 0 && <div className="empty">{t("Nothing yet. Each processing run, export and publish will be listed here.")}</div>}
       {items && items.length > 0 && (
         <ol className="history">
           {items.map((e) => {
@@ -38,9 +40,9 @@ export default function History({ summary, onError }: { summary: Summary; onErro
             return (
               <li key={e.id} className={`h h-${e.status}`}>
                 <div className="h-top">
-                  <b>{KIND[e.kind] ?? e.kind}</b>
-                  <span className={`status st-${e.status}`}>{e.status === "running" && summary.running ? "Running now" : e.status === "running" ? STATUS.interrupted : STATUS[e.status] ?? e.status}</span>
-                  <span className="muted small">{fmtWhen(e.started_at)}{d ? `, took ${d}` : ""}{speed ? `, ${speed}x real time` : ""}</span>
+                  <b>{KIND[e.kind] ? t(KIND[e.kind]) : e.kind}</b>
+                  <span className={`status st-${e.status}`}>{e.status === "running" && summary.running ? t("Running now") : e.status === "running" ? t(STATUS.interrupted) : STATUS[e.status] ? t(STATUS[e.status]) : e.status}</span>
+                  <span className="muted small">{fmtWhen(e.started_at)}{d ? t(", took {time}", { time: d }) : ""}{speed ? t(", {x}x real time", { x: speed }) : ""}</span>
                 </div>
                 <p>{e.summary}</p>
               </li>
