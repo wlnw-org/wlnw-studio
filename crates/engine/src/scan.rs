@@ -42,8 +42,10 @@ pub fn scan(project: &Project, root: &Path) -> Result<ScanReport> {
             params![if serial.is_empty() { folder.clone() } else { String::new() }, serial], |r| r.get(0))?;
         if m.start_local.is_none() { rep.without_time += 1; }
         let bytes = entry.metadata().map(|md| md.len() as i64).unwrap_or(0);
-        tx.execute("INSERT INTO files (deployment_id, path, start_local, time_source, bytes) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![dep, path, m.start_local.map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string()), m.time_source, bytes])?;
+        // The rate it was recorded at (header rate x time expansion), kept so the default model needs no header reads later.
+        let rate = crate::audio::probe_rate(p).map(|r| (r as f64 * m.time_expansion.unwrap_or(1.0)).round() as i64);
+        tx.execute("INSERT INTO files (deployment_id, path, start_local, time_source, bytes, sample_rate) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![dep, path, m.start_local.map(|t| t.format("%Y-%m-%d %H:%M:%S").to_string()), m.time_source, bytes, rate])?;
         rep.added += 1;
     }
     tx.commit()?;

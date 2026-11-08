@@ -27,15 +27,29 @@ pub struct Progress {
 }
 
 /// Model ids to run for each deployment: the project's choice, or the default for its region and sample rate.
+/// Either way BatDetect2 only runs on bat recorders (192 kHz and above); bird models run wherever they are chosen.
 pub fn plan(p: &Project, have: &[String]) -> Result<HashMap<i64, Vec<String>>> {
     let chosen: Vec<String> = p.chosen_models().into_iter().filter(|m| have.contains(m)).collect();
-    // A recorder keeps one sample rate, so its first recording tells (only read when a bat model is installed).
-    let rate_of = |dep: i64| -> Option<u32> {
-        if !have.iter().any(|h| h == crate::batdetect::ID) { return None; }
-        let path: Option<String> = p.db.query_row("SELECT path FROM files WHERE deployment_id = ?1 ORDER BY id LIMIT 1", [dep], |r| r.get(0)).ok();
-        path.and_then(|f| audio::effective_rate(Path::new(&f)))
-    };
-    Ok(p.deployments()?.into_iter().map(|d| (d.id, if chosen.is_empty() { default_models(d.lat, d.lon, rate_of(d.id), have) } else { chosen.clone() })).collect())
+    let bats = have.iter().any(|h| h == crate::batdetect::ID);
+    Ok(p.deployments()?.into_iter().map(|d| {
+        let rate = if bats { recorder_rate(p, d.id) } else { None };
+        let models = if chosen.is_empty() { default_models(d.lat, d.lon, rate, have) } else {
+            let ultrasonic = rate.is_some_and(|r| r >= crate::batdetect::ULTRASONIC_RATE);
+            chosen.iter().filter(|m| m.as_str() != crate::batdetect::ID || ultrasonic).cloned().collect()
+        };
+        (d.id, models)
+    }).collect())
+}
+
+/// A recorder keeps one sample rate, so its first recording tells. Stored per file at scan; projects scanned before that
+/// read the header once and store it.
+fn recorder_rate(p: &Project, dep: i64) -> Option<u32> {
+    let (id, path, rate): (i64, String, Option<i64>) = p.db.query_row("SELECT id, path, sample_rate FROM files WHERE deployment_id = ?1 ORDER BY id LIMIT 1", [dep],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok()?;
+    if let Some(r) = rate { return Some(r as u32); }
+    let r = audio::effective_rate(Path::new(&path))?;
+    p.db.execute("UPDATE files SET sample_rate = ?2 WHERE id = ?1", params![id, r as i64]).ok();
+    Some(r)
 }
 
 pub fn progress(p: &Project, plan: &HashMap<i64, Vec<String>>) -> Result<Progress> {
@@ -196,10 +210,10 @@ fn run_inner(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut
                     tx.execute("DELETE FROM detections WHERE file_id = ?1 AND model = ?2", params![id, model_id])?;
                     tx.execute("DELETE FROM windows WHERE file_id = ?1 AND model = ?2", params![id, model_id])?;
                     {
-                        let mut ins = tx.prepare("INSERT INTO detections (file_id, model, start_s, end_s, species, confidence, in_range) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")?;
-                        for (s, e, label, conf) in out.detections {
+                        let mut ins = tx.prepare("INSERT INTO detections (file_id, model, start_s, end_s, species, confidence, in_range, detection_score) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)")?;
+                        for (k, (s, e, label, conf)) in out.detections.into_iter().enumerate() {
                             let ok = in_range.as_ref().map_or(true, |r| r.get(label).copied().unwrap_or(false));
-                            ins.execute(params![id, model_id, s, e, ids[label], conf as f64, ok as i64])?;
+                            ins.execute(params![id, model_id, s, e, ids[label], conf as f64, ok as i64, out.detection_scores.get(k).map(|&v| v as f64)])?;
                         }
                         let mut win = tx.prepare("INSERT INTO windows (file_id, model, start_s, end_s, row) VALUES (?1, ?2, ?3, ?4, ?5)")?;
                         for ((s, e), row) in out.windows.iter().zip(&rows) { win.execute(params![id, model_id, s, e, row])?; }
@@ -234,6 +248,8 @@ pub struct FileResult {
     pub windows: Vec<(f64, f64)>,
     pub embeddings: Vec<Vec<f32>>,
     pub seconds: f64,
+    /// Call models only: the detection score of each detection, in the same order (empty for window models).
+    pub detection_scores: Vec<f32>,
 }
 
 pub fn process_file(path: &Path, model: &dyn Classifier) -> Result<FileResult> {
@@ -241,7 +257,7 @@ pub fn process_file(path: &Path, model: &dyn Classifier) -> Result<FileResult> {
     let info = model.info();
     let rate = info.sample_rate as f64;
     let mut s = audio::open(path, info.sample_rate)?;
-    let mut out = FileResult { detections: vec![], windows: vec![], embeddings: vec![], seconds: 0.0 };
+    let mut out = FileResult { detections: vec![], windows: vec![], embeddings: vec![], seconds: 0.0, detection_scores: vec![] };
     let floor = model.floor();
     loop {
         let mut batch = Vec::with_capacity(BATCH);
@@ -271,7 +287,7 @@ fn process_calls(path: &Path, model: &dyn Classifier) -> Result<FileResult> {
     let clip_s = info.window as f64 / info.sample_rate as f64;
     let native = (clip_s * real as f64).floor() as usize;
     let rs = crate::batdetect::PolyResampler::new(real, info.sample_rate);
-    let mut out = FileResult { detections: vec![], windows: vec![], embeddings: vec![], seconds: 0.0 };
+    let mut out = FileResult { detections: vec![], windows: vec![], embeddings: vec![], seconds: 0.0, detection_scores: vec![] };
     let floor = model.floor();
     loop {
         let mut batch = Vec::with_capacity(BATCH);
@@ -285,7 +301,9 @@ fn process_calls(path: &Path, model: &dyn Classifier) -> Result<FileResult> {
         if batch.is_empty() { break; }
         for (b, found) in model.calls(&batch)?.into_iter().enumerate() {
             let st = starts[b] as f64 / real as f64;
-            for c in found { if c.confidence >= floor { out.detections.push(((st + c.start) * te, (st + c.end.max(c.start)) * te, c.label, c.confidence)); } }
+            for c in found {
+                if c.confidence >= floor { out.detections.push(((st + c.start) * te, (st + c.end.max(c.start)) * te, c.label, c.confidence)); out.detection_scores.push(c.detection); }
+            }
         }
     }
     out.seconds = (s.position + s.leftover()) as f64 / s.source_rate as f64;
@@ -295,6 +313,25 @@ fn process_calls(path: &Path, model: &dyn Classifier) -> Result<FileResult> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bat_model_only_on_bat_recorders() {
+        let dir = std::env::temp_dir().join(format!("wlnw-plan-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = Project::open(&dir.join("t.wlnw")).unwrap();
+        p.db.execute_batch("INSERT INTO deployments (id, name, folder) VALUES (1, 'Bats', '/b'), (2, 'Birds', '/c');
+            INSERT INTO files (id, deployment_id, path, sample_rate) VALUES (1, 1, '/b/a.wav', 256000), (2, 2, '/c/a.wav', 48000);").unwrap();
+        let have: Vec<String> = ["birdnet-2.4", "perch-2.0", "batdetect2-uk"].iter().map(|s| s.to_string()).collect();
+        let auto = plan(&p, &have).unwrap();
+        assert_eq!(auto[&1], vec!["batdetect2-uk"]);
+        assert_eq!(auto[&2], vec!["birdnet-2.4"]);
+        p.set_setting("models", &serde_json::to_string(&have).unwrap()).unwrap();
+        let chosen = plan(&p, &have).unwrap();
+        assert_eq!(chosen[&1], have);
+        assert_eq!(chosen[&2], vec!["birdnet-2.4", "perch-2.0"]);
+        drop(p);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     #[test]
     fn space_estimate() {

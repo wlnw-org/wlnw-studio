@@ -136,10 +136,19 @@ impl AudioStream {
 }
 
 /// Reads `secs` seconds starting at `start_s` (48 kHz mono), for review clips.
-pub fn read_segment(path: &Path, start_s: f64, secs: f64) -> Result<Vec<f32>> {
+pub fn read_segment(path: &Path, start_s: f64, secs: f64) -> Result<Vec<f32>> { segment(open(path, SR)?, start_s, secs) }
+
+/// Like `read_segment`, at the recording's own sample rate (for ultrasonic bat clips). Returns the samples and that rate.
+pub fn read_segment_native(path: &Path, start_s: f64, secs: f64) -> Result<(Vec<f32>, u32)> {
+    let s = open_native(path)?;
+    let rate = s.rate;
+    Ok((segment(s, start_s, secs)?, rate))
+}
+
+fn segment(mut s: AudioStream, start_s: f64, secs: f64) -> Result<Vec<f32>> {
     use symphonia::core::formats::{SeekMode, SeekTo};
     use symphonia::core::units::Time;
-    let mut s = open(path, SR)?;
+    let rate = s.rate as f64;
     // Jump close to the clip instead of decoding the whole recording up to it; fall back to decoding when a format cannot seek.
     let mut at = 0f64;
     if start_s > 0.0 {
@@ -149,8 +158,8 @@ pub fn read_segment(path: &Path, start_s: f64, secs: f64) -> Result<Vec<f32>> {
             at = done.actual_ts as f64 / s.source_rate as f64;
         }
     }
-    let skip = ((start_s - at).max(0.0) * SR as f64) as usize;
-    let want = (secs * SR as f64) as usize;
+    let skip = ((start_s - at).max(0.0) * rate) as usize;
+    let want = (secs * rate) as usize;
     let mut out = Vec::with_capacity(want);
     let mut skipped = 0usize;
     while skipped < skip {

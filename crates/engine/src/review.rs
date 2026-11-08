@@ -112,14 +112,53 @@ pub fn fit_threshold(p: &Project, species: i64, model: &str, target: f64) -> Res
 }
 
 #[derive(Debug, Serialize)]
-pub struct Clip { pub wav: Vec<u8>, pub spec: Vec<u8>, pub width: usize, pub height: usize, pub offset_s: f64, pub window_s: f64, pub total_s: f64, pub max_khz: f64 }
+pub struct Clip {
+    pub wav: Vec<u8>, pub spec: Vec<u8>, pub width: usize, pub height: usize, pub offset_s: f64, pub window_s: f64, pub total_s: f64, pub max_khz: f64,
+    /// Seconds of playback per second of the file (for the play cursor): 1 for birds.
+    pub playback: f64,
+    /// How many times slower than real time the WAV plays: 1 for birds, 10 for bats so their calls are audible.
+    pub slowed: f64,
+}
+
+/// A clip around a detection as WAV plus its spectrogram. Birds: 1 s either side at 48 kHz, 0 to 12 kHz, played as recorded.
+/// Detections from a bat model (`model`): 0.1 s either side at the recording's own rate, up to 125 kHz (or the recording's
+/// Nyquist), played 10 times slower. Times are in the file's seconds; for time-expanded files (GUANO TE) the frequency
+/// axis shows real frequencies.
+pub fn clip_for(path: &Path, start_s: f64, end_s: f64, model: Option<&str>) -> Result<Clip> {
+    if model == Some(crate::batdetect::ID) { bat_clip(path, start_s, end_s) } else { clip(path, start_s, end_s) }
+}
 
 /// A clip around a detection (1 s either side) as WAV, and its spectrogram (0 to 12 kHz) as grey levels, top row highest frequency.
 pub fn clip(path: &Path, start_s: f64, end_s: f64) -> Result<Clip> {
     let from = (start_s - 1.0).max(0.0);
     let samples = audio::read_segment(path, from, (end_s - from) + 1.0)?;
     let (n, hop, max_hz) = (512usize, 160usize, 12_000f64);
-    let bins = ((max_hz / SR as f64) * n as f64) as usize;
+    let (spec, frames, bins) = spectrogram(&samples, SR, n, hop, max_hz)?;
+    Ok(Clip { wav: audio::wav_bytes(&samples, SR), spec, width: frames, height: bins, offset_s: start_s - from, window_s: end_s - start_s, total_s: samples.len() as f64 / SR as f64, max_khz: max_hz / 1000.0, playback: 1.0, slowed: 1.0 })
+}
+
+pub const BAT_SLOWDOWN: f64 = 10.0;
+
+fn bat_clip(path: &Path, start_s: f64, end_s: f64) -> Result<Clip> {
+    let te = crate::meta::read(path).time_expansion.unwrap_or(1.0);
+    let pad = 0.1 * te;
+    let from = (start_s - pad).max(0.0);
+    let (samples, rate) = audio::read_segment_native(path, from, (end_s - from) + pad)?;
+    // In the file's own terms: a time-expanded file holds real frequencies divided by TE.
+    let max_hz = (125_000.0 / te).min(rate as f64 / 2.0);
+    let real_rate = rate as f64 * te;
+    // About 4,000 columns per real second, so a 5 ms call is about 20 columns wide.
+    let hop = ((real_rate / 4000.0).round() as usize).clamp(8, 256);
+    let (spec, frames, bins) = spectrogram(&samples, rate, 512, hop, max_hz)?;
+    let play_rate = ((real_rate / BAT_SLOWDOWN).round() as u32).max(1000);
+    Ok(Clip { wav: audio::wav_bytes(&samples, play_rate), spec, width: frames, height: bins, offset_s: start_s - from, window_s: end_s - start_s,
+        total_s: samples.len() as f64 / rate as f64, max_khz: (max_hz * te / 1000.0).round(),
+        playback: rate as f64 / play_rate as f64, slowed: real_rate / play_rate as f64 })
+}
+
+/// Grey-level spectrogram (dB, 20th percentile to max), top row the highest frequency kept.
+fn spectrogram(samples: &[f32], rate: u32, n: usize, hop: usize, max_hz: f64) -> Result<(Vec<u8>, usize, usize)> {
+    let bins = (((max_hz / rate as f64) * n as f64) as usize).min(n / 2 + 1);
     let fft = RealFftPlanner::<f32>::new().plan_fft_forward(n);
     let win: Vec<f32> = (0..n).map(|i| 0.5 - 0.5 * (2.0 * std::f32::consts::PI * i as f32 / n as f32).cos()).collect();
     let frames = if samples.len() > n { (samples.len() - n) / hop + 1 } else { 0 };
@@ -138,7 +177,7 @@ pub fn clip(path: &Path, start_s: f64, end_s: f64) -> Result<Clip> {
         let v = ((db[f * bins + k] - lo) / (hi - lo).max(1e-3)).clamp(0.0, 1.0);
         spec[(bins - 1 - k) * frames + f] = (v * 255.0) as u8;
     } }
-    Ok(Clip { wav: audio::wav_bytes(&samples, SR), spec, width: frames, height: bins, offset_s: start_s - from, window_s: end_s - start_s, total_s: samples.len() as f64 / SR as f64, max_khz: max_hz / 1000.0 })
+    Ok((spec, frames, bins))
 }
 
 #[cfg(test)]
@@ -172,7 +211,7 @@ mod tests {
     #[test]
     fn too_few_reviews_keep_default() {
         let (_d, p) = project();
-        p.db.execute("INSERT INTO detections VALUES (1, 1, 'birdnet-2.4', 0, 3, 1, 0.9, 1)", []).unwrap();
+        p.db.execute("INSERT INTO detections (id, file_id, model, start_s, end_s, species, confidence, in_range) VALUES (1, 1, 'birdnet-2.4', 0, 3, 1, 0.9, 1)", []).unwrap();
         set_verdict(&p, 1, Some("yes")).unwrap();
         assert_eq!(p.threshold(1, "birdnet-2.4"), 0.5);
         let dir = tempfile::tempdir().unwrap();

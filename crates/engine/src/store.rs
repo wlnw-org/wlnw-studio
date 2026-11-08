@@ -29,6 +29,9 @@ pub struct Detection {
     /// Start of the detection in UTC, when the recording's time is known.
     pub utc: Option<NaiveDateTime>, pub lat: Option<f64>, pub lon: Option<f64>, pub site: String,
     pub verdict: Option<String>,
+    /// Call models (BatDetect2): how sure the model is that this is a bat call at all; `confidence` is the species score.
+    #[serde(default)]
+    pub detection_score: Option<f64>,
 }
 
 const SCHEMA_VERSION: &str = "2";
@@ -79,6 +82,11 @@ impl Project {
             && !db.query_row("SELECT EXISTS (SELECT 1 FROM pragma_table_info('detections') WHERE name = 'model')", [], |r| r.get::<_, bool>(0))?;
         if old { bail!("This project was made by an earlier test version of Studio. Please create a new project and add the recordings again."); }
         db.execute_batch(SCHEMA)?;
+        // Columns added after schema 2, appended to projects made before them (nullable, so old rows simply have none).
+        for (table, col, ty) in [("detections", "detection_score", "REAL"), ("files", "sample_rate", "INTEGER")] {
+            let has: bool = db.query_row(&format!("SELECT EXISTS (SELECT 1 FROM pragma_table_info('{table}') WHERE name = '{col}')"), [], |r| r.get(0))?;
+            if !has { db.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {ty}"))?; }
+        }
         let p = Project { db, path: path.to_path_buf() };
         p.set_setting("schema", SCHEMA_VERSION)?;
         Ok(p)
@@ -136,7 +144,7 @@ impl Project {
     pub fn detections(&self, filter: &str, args: &[&dyn rusqlite::ToSql], limit: i64) -> Result<Vec<Detection>> {
         let sql = format!(
             "SELECT d.id, d.file_id, f.path, f.deployment_id, d.start_s, d.end_s, d.species, s.scientific, s.common, d.model, d.confidence, d.in_range,
-                    f.start_local, p.tz_offset_min, p.lat, p.lon, p.name, r.verdict
+                    f.start_local, p.tz_offset_min, p.lat, p.lon, p.name, r.verdict, d.detection_score
              FROM detections d JOIN files f ON f.id = d.file_id JOIN deployments p ON p.id = f.deployment_id
              JOIN species s ON s.id = d.species LEFT JOIN reviews r ON r.detection_id = d.id
              WHERE {filter} ORDER BY f.start_local, f.path, d.start_s LIMIT {limit}");
@@ -150,7 +158,7 @@ impl Project {
             Ok(Detection {
                 id: r.get(0)?, file_id: r.get(1)?, path: r.get(2)?, deployment_id: r.get(3)?, start_s, end_s: r.get(5)?, label: r.get(6)?,
                 scientific: r.get(7)?, common: r.get(8)?, model: r.get(9)?, confidence: r.get(10)?, in_range: r.get::<_, i64>(11)? == 1,
-                utc, lat: r.get(14)?, lon: r.get(15)?, site: r.get(16)?, verdict: r.get(17)?,
+                utc, lat: r.get(14)?, lon: r.get(15)?, site: r.get(16)?, verdict: r.get(17)?, detection_score: r.get(18)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
