@@ -192,3 +192,7 @@ nav.secondary .step { padding-left: 42px; }
 .tile-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 11px; margin-top: 4px; }
 .v-yes { color: var(--good); } .v-no { color: var(--bad); } .v-unsure { color: var(--unsure); }
 .grid td input.country { max-width: 70px; text-transform: uppercase; }
+
+.update-banner { position: fixed; right: 16px; bottom: 16px; z-index: 50; width: 300px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 12px 14px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.15); }
+.update-banner b { display: block; } .update-banner small { color: var(--muted); } .update-banner small.error { color: var(--bad); }

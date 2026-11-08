@@ -473,7 +473,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .setup(|app| { load_app_settings(app.handle()); Ok(()) })
+        .setup(|app| {
+            // Updates come from the latest GitHub release (latest.json), checked by the UI on startup.
+            #[cfg(desktop)]
+            {
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+                app.handle().plugin(tauri_plugin_process::init())?;
+            }
+            load_app_settings(app.handle());
+            Ok(())
+        })
         .manage({
             // A project file given at launch (double-click or `open --args`) opens straight away.
             let a = App::default();
