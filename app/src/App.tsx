@@ -9,11 +9,12 @@ import Publish from "./screens/Publish";
 import Files from "./screens/Files";
 import History from "./screens/History";
 import { OnlineSetting } from "./Online";
+import Images from "./screens/Images";
 
-type Step = "recordings" | "process" | "review" | "publish" | "files" | "history";
+type Step = "recordings" | "process" | "review" | "images" | "publish" | "files" | "history";
 const STEPS: { id: Step; label: string; hint: string }[] = [
   { id: "recordings", label: "Recordings", hint: "Add a drive or folder" },
-  { id: "process", label: "Find species", hint: "BirdNET and Perch, on this computer" },
+  { id: "process", label: "Find species", hint: "On this computer, nothing uploaded" },
   { id: "review", label: "Review", hint: "Check clips, teach the classifier" },
   { id: "publish", label: "Export and publish", hint: "GBIF, Wildlife Network, files" },
 ];
@@ -88,7 +89,7 @@ export default function App() {
         <div className="brand"><img src="/logo.svg" alt="" /><span>Studio</span></div>
         <div className="project" title={summary.path}><small>Project</small><b>{summary.name}</b></div>
         <nav>
-          {STEPS.map((s, i) => (
+          {(summary.images ? [...STEPS.slice(0, 3), { id: "images" as Step, label: "Images", hint: "Camera-trap photos by species" }, STEPS[3]] : STEPS).map((s, i) => (
             <button key={s.id} className={step === s.id ? "step active" : "step"} onClick={() => setStep(s.id)}>
               <span className="num">{i + 1}</span>
               <span><b>{s.label}</b><small>{s.hint}</small></span>
@@ -103,7 +104,7 @@ export default function App() {
             <span><b>History</b><small>Runs, exports and publishing</small></span>
           </button>
         </nav>
-        {summary.running && <div className="running"><span className="pulse" /> Processing {prog.files_done} of {prog.files_total} recordings</div>}
+        {summary.running && <div className="running"><span className="pulse" /> {prog.files_total > 0 && prog.files_done < prog.files_total ? `Processing ${prog.files_done} of ${prog.files_total} recordings` : `Processing ${prog.images_done} of ${prog.images_total} images`}</div>}
         <OnlineSetting />
         <button className="link small" onClick={() => { setSummary(null); setLive(null); }}>Close project</button>
       </aside>
@@ -112,6 +113,7 @@ export default function App() {
         {step === "recordings" && <Recordings summary={summary} refresh={refresh} onError={setError} next={() => setStep("process")} />}
         {step === "process" && <Process summary={summary} live={live} refresh={refresh} onError={setError} next={() => setStep("review")} showFiles={(st) => { setFilesStatus(st); setStep("files"); }} />}
         {step === "review" && <Review summary={summary} refresh={refresh} onError={setError} />}
+        {step === "images" && <Images summary={summary} onError={setError} />}
         {step === "publish" && <Publish summary={summary} refresh={refresh} onError={setError} />}
         {step === "files" && <Files key={filesStatus ?? ""} summary={summary} refresh={refresh} onError={setError} initialStatus={filesStatus} />}
         {step === "history" && <History summary={summary} onError={setError} />}

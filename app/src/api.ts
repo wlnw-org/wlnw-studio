@@ -1,17 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
 
-export interface Deployment { id: number; name: string; folder: string; serial: string | null; model: string | null; lat: number | null; lon: number | null; tz_offset_min: number; tz_known: boolean; files: number; done: number; hours: number; models: string[]; perch_region: boolean }
-export interface Progress { jobs_done: number; jobs_total: number; current_model: string | null; files_done: number; files_total: number; hours_done: number; bytes_done: number; bytes_total: number; detections: number; speed_x: number; eta_s: number | null; current: string | null; errors: number }
+export interface Deployment { id: number; name: string; folder: string; serial: string | null; model: string | null; lat: number | null; lon: number | null; tz_offset_min: number; tz_known: boolean; files: number; done: number; hours: number; models: string[]; perch_region: boolean; images: number; country: string | null; admin1: string | null }
+export interface Progress { jobs_done: number; jobs_total: number; current_model: string | null; files_done: number; files_total: number; hours_done: number; bytes_done: number; bytes_total: number; detections: number; speed_x: number; eta_s: number | null; current: string | null; errors: number; images_done: number; images_total: number; images_per_s: number }
 export interface DatasetInfo { title: string; institution: string | null; people: string[]; license: string; description: string | null; contact_email: string | null }
 export interface ModelInfo { id: string; name: string; version: string; licence: string; licence_url: string; citation: string; sample_rate: number; window: number; embeds: boolean; location_filter: boolean; speed_x: number }
 export interface WncInfo { trained_at: string; classes: [string, string, number, number | null][] }
-export interface Summary { path: string; name: string; deployments: Deployment[]; progress: Progress; running: boolean; dataset: DatasetInfo; models: ModelInfo[]; model_errors: string[]; chosen: string[]; wnc: WncInfo | null; space: { needed: number; free: number | null; enough: boolean } }
+export interface Summary { path: string; name: string; deployments: Deployment[]; progress: Progress; running: boolean; dataset: DatasetInfo; models: ModelInfo[]; model_errors: string[]; chosen: string[]; wnc: WncInfo | null; space: { needed: number; free: number | null; enough: boolean }; images: ImageCounts | null }
 export interface Similar { window_id: number; file_id: number; path: string; start_s: number; end_s: number; similarity: number; site: string }
 export interface TrainReport { classes: [string, string, number, number, number | null][]; skipped: [string, number][]; detections: number }
 export interface SpeciesRow { label: number; model: string; scientific: string; common: string; detections: number; kept: number; reviewed: number; yes: number; no: number; threshold: number; threshold_source: string; precision: number | null; max_conf: number }
 export interface Detection { id: number; file_id: number; path: string; deployment_id: number; start_s: number; end_s: number; label: number; scientific: string; common: string; model: string; confidence: number; detection_score?: number | null; in_range: boolean; utc: string | null; lat: number | null; lon: number | null; site: string; verdict: string | null }
 export interface Clip { wav: string; spec: string; width: number; height: number; offset_s: number; window_s: number; total_s: number; max_khz: number; playback: number; slowed: number }
-export interface ScanReport { found: number; added: number; without_time: number; deployments: number }
+export interface ScanReport { found: number; added: number; without_time: number; deployments: number; images_found: number; images_added: number; images_without_time: number }
+export interface ImageCounts { total: number; done: number; failed: number; animals: number; people: number; vehicles: number; empty: number; boxes: number }
+export interface ImageSpeciesRow { label: number; model: string; scientific: string; common: string; boxes: number; images: number; kept: number; reviewed: number; yes: number; no: number; threshold: number; threshold_source: string; precision: number | null; max_score: number }
+export interface ImageBox { id: number; model: string; kind: "animal" | "human" | "vehicle" | "blank" | "unknown"; category: string; conf: number; bbox: [number, number, number, number]; species: number | null; scientific: string; common: string; score: number; source: string; verdict: string | null; top: [string, number][] }
+export interface ImageItem { id: number; path: string; deployment_id: number; site: string; taken_local: string | null; utc: string | null; width: number | null; height: number | null; lat: number | null; lon: number | null; boxes: ImageBox[]; focus: number | null }
+export interface ImageQuery { species?: number | null; model?: string | null; show?: string | null; offset?: number; limit?: number }
 export interface PublishReport { sent: number; added: number; duplicates: number; left_out: number; status: string | null }
 
 export interface ImportReport { rows: number; matched: number; added: number; unmatched: number; unmatched_examples: string[]; no_species: number; unknown_names: string[]; tables: number; model: string }
@@ -76,6 +81,12 @@ export const api = {
   agreementSettle: (reviewer: string, detection: number, verdict: string) => invoke<void>("agreement_settle", { reviewer, detection, verdict }),
   reviewerName: () => invoke<string | null>("reviewer_name"),
   publishTo: (dataset: string, key: string, submit: boolean) => invoke<PublishReport>("publish_to", { dataset, key, submit }),
+  setDeploymentCountry: (id: number, country: string | null, admin1: string | null) => invoke<boolean>("set_deployment_country", { id, country, admin1 }),
+  imageSpecies: () => invoke<ImageSpeciesRow[]>("image_species"),
+  imageQueue: (query: ImageQuery) => invoke<ImageItem[]>("image_queue", { query }),
+  imageFilters: () => invoke<Record<string, number>>("image_filters"),
+  setImageVerdict: (boxId: number, verdict: string | null) => invoke<void>("set_image_verdict", { boxId, verdict }),
+  imageThumb: (file: string, max: number) => invoke<string>("image_thumb", { file, max }),
 };
 
 export const fmtHours = (h: number) => (h < 1 ? `${Math.round(h * 60)} min` : `${h.toFixed(h < 10 ? 1 : 0)} h`);
@@ -83,7 +94,7 @@ export const fmtBytes = (b: number) => (b > 1e12 ? `${(b / 1e12).toFixed(2)} TB`
 export const fmtDuration = (s: number) => (s < 90 ? `${Math.round(s)} s` : s < 5400 ? `${Math.round(s / 60)} min` : `${(s / 3600).toFixed(1)} h`);
 
 export const MODEL_NAMES: Record<string, string> = {
-  "birdnet-2.4": "BirdNET", "perch-2.0": "Perch", wnc: "Wildlife Network Classifier",
+  "birdnet-2.4": "BirdNET", "perch-2.0": "Perch", wnc: "Wildlife Network Classifier", "speciesnet-4.0.3a": "SpeciesNet",
   "import:birdnet-analyzer": "BirdNET-Analyzer (imported)", "import:birdnet-pi": "BirdNET-Pi or Go (imported)", "import:kaleidoscope": "Kaleidoscope (imported)",
 };
 export const modelName = (id: string) => MODEL_NAMES[id] ?? id;

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use wlnw_engine::models::{self, Classifier, ModelInfo};
-use wlnw_engine::{agreement, download, export, import, files, history, online, publish, review, run, scan, store::Project, wnc};
+use wlnw_engine::{agreement, camtrap, download, export, import, files, history, images, online, publish, review, run, scan, store::Project, wnc};
 
 #[derive(Default)]
 struct App {
@@ -107,6 +107,8 @@ struct DepOut { #[serde(flatten)] d: wlnw_engine::store::Deployment, models: Vec
 struct Summary {
     path: String, name: String, deployments: Vec<DepOut>, progress: run::Progress, running: bool,
     dataset: export::DatasetInfo, models: Vec<ModelInfo>, model_errors: Vec<String>, chosen: Vec<String>, wnc: Option<WncInfo>, space: run::Space,
+    /// Camera-trap images in the project (None when there are none).
+    images: Option<images::Counts>,
 }
 
 #[derive(Serialize)]
@@ -136,7 +138,8 @@ fn summary(app: tauri::AppHandle, s: State<App>) -> R<Summary> {
             DepOut { models: plan.get(&d.id).cloned().unwrap_or_default(), perch_region, d }
         }).collect(),
         space: run::space(&p, &plan, &ms.iter().filter(|m| m.info().embeds).map(|m| m.info().id.clone()).collect::<Vec<_>>()).map_err(err)?,
-        progress: run::progress(&p, &plan).map_err(err)?, running: s.running.load(Ordering::Relaxed),
+        progress: run::progress_all(&p, &plan, &have).map_err(err)?, running: s.running.load(Ordering::Relaxed),
+        images: images::counts(&p, camtrap::ID).ok().filter(|c| c.total > 0),
         dataset: export::info(&p),
         models: ms.iter().map(|m| m.info().clone()).collect(), model_errors: errors.clone(), chosen: p.chosen_models(),
         wnc: wnc::pack(&p).map(|k| WncInfo { trained_at: k.trained_at, classes: k.classes.into_iter().map(|c| (c.scientific, c.common, c.positives, c.cv_accuracy)).collect() }),
@@ -150,8 +153,7 @@ async fn scan_folder(folder: String, s: State<'_, App>) -> R<scan::ScanReport> {
         let p = Project::open(&file).map_err(err)?;
         let t = history::now(&p);
         let r = scan::scan(&p, Path::new(&folder));
-        history::log(&p, "scan", &t, &r, |x| format!("Added {} new of {} recordings found in {} ({} {})", history::n(x.added as i64), history::n(x.found as i64), folder,
-            x.deployments, if x.deployments == 1 { "recorder" } else { "recorders" }), "Adding a folder failed");
+        history::log(&p, "scan", &t, &r, |x| scan::summary(x, &folder), "Adding a folder failed");
         r.map_err(err)
     }).await.map_err(err)?
 }
@@ -160,6 +162,35 @@ async fn scan_folder(folder: String, s: State<'_, App>) -> R<scan::ScanReport> {
 fn update_deployment(id: i64, name: String, lat: Option<f64>, lon: Option<f64>, tz_hours: f64, s: State<App>) -> R<()> {
     if lat.is_some_and(|v| !(-90.0..=90.0).contains(&v)) || lon.is_some_and(|v| !(-180.0..=180.0).contains(&v)) { return Err("Latitude must be -90 to 90 and longitude -180 to 180.".into()); }
     open(&s)?.update_deployment(id, &name, lat, lon, (tz_hours * 60.0).round() as i32).map_err(err)
+}
+
+/// Camera traps: the deployment's country (ISO 3166-1 alpha-3) and US state for SpeciesNet's geofencing. True when its
+/// images will run again.
+#[tauri::command]
+fn set_deployment_country(id: i64, country: Option<String>, admin1: Option<String>, s: State<App>) -> R<bool> {
+    if s.running.load(Ordering::SeqCst) { return Err("Pause processing first.".into()); }
+    images::set_country(&open(&s)?, id, country.as_deref(), admin1.as_deref()).map_err(err)
+}
+
+#[tauri::command]
+fn image_species(s: State<App>) -> R<Vec<images::SpeciesRow>> { images::species(&open(&s)?).map_err(err) }
+
+#[tauri::command]
+fn image_queue(query: images::Query, s: State<App>) -> R<Vec<images::ImageItem>> { images::queue(&open(&s)?, &query).map_err(err) }
+
+#[tauri::command]
+fn image_filters(s: State<App>) -> R<std::collections::BTreeMap<&'static str, i64>> { images::filter_counts(&open(&s)?).map_err(err) }
+
+#[tauri::command]
+fn set_image_verdict(box_id: i64, verdict: Option<String>, s: State<App>) -> R<()> { images::set_verdict(&open(&s)?, box_id, verdict.as_deref()).map_err(err) }
+
+/// A JPEG of an image for the review grid, as base64.
+#[tauri::command]
+async fn image_thumb(file: String, max: u32) -> R<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let j = images::thumbnail(Path::new(&file), max.clamp(64, 2400)).map_err(err)?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(j))
+    }).await.map_err(err)?
 }
 
 #[tauri::command]
@@ -281,6 +312,7 @@ async fn export_to(format: String, out: String, s: State<'_, App>) -> R<usize> {
         let (r, name) = match format.as_str() {
             "csv" => (export::csv(&p, o), "CSV"), "wdx" => (export::wdx(&p, o), "WDX"), "dwca" => (export::dwca(&p, o), "a Darwin Core Archive"),
             "raven" => (export::raven_audacity(&p, o), "Raven and Audacity tables"), "kaleidoscope" => (export::kaleidoscope(&p, o), "a Kaleidoscope id.csv"),
+            "camtrapdp" => (images::camtrapdp(&p, o).map(|r| r.observations), "a Camtrap DP package"),
             _ => return Err("unknown format".into()),
         };
         history::log(&p, "export", &t, &r, |k| format!("Exported {} detections as {name} to {out}", history::n(*k as i64)), "Export failed");
@@ -451,7 +483,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
             species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
             list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_settle, reviewer_name,
-            online_enabled, set_online_enabled, online_prefetch, online_flags, online_species, online_around])
+            online_enabled, set_online_enabled, online_prefetch, online_flags, online_species, online_around,
+            set_deployment_country, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
         .run(tauri::generate_context!())
         .expect("error while running Wildlife Network Studio");
 }

@@ -27,13 +27,14 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
     const base = info.title.replace(/[^\w-]+/g, "-").slice(0, 60) || "detections";
     let out: string | null = null;
     if (format === "raven") { const d = await open({ title: "Folder for Raven and Audacity tables", directory: true }); out = typeof d === "string" ? d : null; }
+    else if (format === "camtrapdp") { const d = await open({ title: "Empty folder for the Camtrap DP package", directory: true }); out = typeof d === "string" ? d : null; }
     else {
       const ext = { dwca: "zip", wdx: "ndjson", csv: "csv", kaleidoscope: "csv" }[format]!;
       out = await save({ title: "Export", defaultPath: format === "kaleidoscope" ? "id.csv" : `${base}${format === "dwca" ? "-dwca" : ""}.${ext}`, filters: [{ name: format === "kaleidoscope" ? "Kaleidoscope id.csv" : format.toUpperCase(), extensions: [ext] }] });
     }
     if (!out) return;
     setBusy(true); setMsg(null);
-    try { const n = await api.exportTo(format, out); setMsg(`${n.toLocaleString()} detections exported to ${out}.`); } catch (e) { onError(String(e)); }
+    try { const n = await api.exportTo(format, out); setMsg(format === "camtrapdp" ? `${n.toLocaleString()} observations exported to ${out}. Images with people were left out, and so were images without a time or a camera without a place.` : `${n.toLocaleString()} detections exported to ${out}.`); } catch (e) { onError(String(e)); }
     setBusy(false);
   }
 
@@ -69,6 +70,7 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
           <button disabled={busy} onClick={() => exportAs("raven")}><b>Raven and Audacity</b><small>Selection tables and labels next to each recording</small></button>
           <button disabled={busy} onClick={() => exportAs("csv")}><b>CSV</b><small>One row per detection, for R, Python or a spreadsheet</small></button>
           <button disabled={busy} onClick={() => exportAs("kaleidoscope")}><b>Kaleidoscope id.csv</b><small>For Kaleidoscope users: your yes answers go in MANUAL ID</small></button>
+          {summary.images && <button disabled={busy} onClick={() => exportAs("camtrapdp")}><b>Camtrap DP</b><small>Camera-trap images: deployments, media and observations, for GBIF, Agouti or camtraptor</small></button>}
         </div>
         {msg && <p className="note">{msg}</p>}
       </div>

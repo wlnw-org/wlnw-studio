@@ -177,3 +177,18 @@ nav.secondary .step { padding-left: 42px; }
 .wn-box p { margin: 2px 0; } .wn-head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .wn-warn { color: var(--warn); } .wn-soft { color: var(--muted); }
 .around p { margin: 6px 0; }
+.img-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 1100px) { .img-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 6px; cursor: pointer; }
+.tile.on { outline: 2px solid var(--accent); } .tile.yes { border-color: var(--good); } .tile.no { opacity: 0.6; }
+.frame { position: relative; background: var(--spec-bg); border-radius: 6px; overflow: hidden; min-height: 80px; }
+.frame img { display: block; width: 100%; height: auto; }
+.frame.big { cursor: zoom-out; }
+.ibox { position: absolute; border: 2px solid rgba(255, 255, 255, 0.55); border-radius: 2px; pointer-events: none; }
+.ibox span { position: absolute; left: -2px; top: -18px; font-size: 10px; line-height: 16px; padding: 0 4px; white-space: nowrap; background: rgba(0, 0, 0, 0.6); color: #fff; border-radius: 3px; }
+.ibox.focus { border-color: #ffd34d; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5); }
+.ibox.k-human { border-color: #ff7b6e; } .ibox.k-vehicle { border-color: #9db8ff; }
+.ibox.yes { border-color: #3cc3a2; } .ibox.no { border-style: dashed; }
+.tile-meta { display: flex; flex-wrap: wrap; gap: 2px 8px; font-size: 11px; margin-top: 4px; }
+.v-yes { color: var(--good); } .v-no { color: var(--bad); } .v-unsure { color: var(--unsure); }
+.grid td input.country { max-width: 70px; text-transform: uppercase; }

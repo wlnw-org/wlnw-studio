@@ -30,14 +30,16 @@ export default function Process({ summary, live, refresh, onError, next, showFil
       {!summary.space.enough && left > 0 && <p className="warn card">Perch saves a fingerprint of every 5 seconds of audio next to the project, for &quot;find more like this&quot; and the Wildlife Network Classifier. The recordings still to process need about <b>{fmtBytes(summary.space.needed)}</b>, but the disk with the project has only <b>{fmtBytes(summary.space.free ?? 0)}</b> free. Free some space or save the project on a bigger disk (it can sit apart from the recordings). Processing stops by itself if less than 1 GB is left.</p>}
       <ModelPacks onChange={refresh} onError={onError} />
 
-      {summary.models.length > 0 && <div className="card">
+      {summary.images && !summary.models.some((m) => m.id === "speciesnet-4.0.3a") && <p className="note">This project has {summary.images.total.toLocaleString()} camera-trap images. Add the SpeciesNet pack above to find the animals in them.</p>}
+      {summary.images && summary.models.some((m) => m.id === "speciesnet-4.0.3a") && <p className="muted">Camera-trap images always go through SpeciesNet: MegaDetector finds animals, people and vehicles, then SpeciesNet names the animal in each box, checked against the camera&apos;s country (set it on the Recordings screen).</p>}
+      {summary.models.some((m) => m.id !== "speciesnet-4.0.3a") && <div className="card">
         <h3>Which models to run</h3>
         <label className="choice"><input type="radio" checked={auto} onChange={() => choose([])} disabled={summary.running} />
           <span><b>Best for each recorder&apos;s region</b> (recommended)<small>Perch first in Africa and South Asia, where BirdNET knows fewer species, with BirdNET as a second opinion. BirdNET elsewhere: it is faster and filters species by place and week. Bat recordings (192 kHz and above) go to BatDetect2 when it is installed.</small></span></label>
         <label className="choice"><input type="radio" checked={!auto} onChange={() => choose(summary.models.map((m) => m.id))} disabled={summary.running} />
           <span><b>Choose myself</b><small>The same models for every recorder. BatDetect2 only runs on bat recordings (192 kHz and above); bird models run on every recorder you tick them for, bat recorders included.</small></span></label>
         <div className="models">
-          {summary.models.map((m) => (
+          {summary.models.filter((m) => m.id !== "speciesnet-4.0.3a").map((m) => (
             <label key={m.id} className={`model ${auto ? "dim" : ""}`}>
               <input type="checkbox" disabled={auto || summary.running} checked={auto ? false : summary.chosen.includes(m.id)} onChange={() => toggle(m.id)} />
               <span><b>{m.name} {m.version}</b>
@@ -53,7 +55,9 @@ export default function Process({ summary, live, refresh, onError, next, showFil
       <div className="card">
         <div className="bar"><div style={{ width: `${pct}%` }} /></div>
         <div className="stats">
-          <div><b>{p.files_done.toLocaleString()}</b> of {p.files_total.toLocaleString()} recordings done</div>
+          {(p.files_total > 0 || !p.images_total) && <div><b>{p.files_done.toLocaleString()}</b> of {p.files_total.toLocaleString()} recordings done</div>}
+          {p.images_total > 0 && <div><b>{p.images_done.toLocaleString()}</b> of {p.images_total.toLocaleString()} images done</div>}
+          {summary.running && live && live.images_per_s > 0 && <div><b>{live.images_per_s.toFixed(1)}</b> images a second</div>}
           <div><b>{fmtHours(p.hours_done)}</b> of audio</div>
           <div><b>{p.detections.toLocaleString()}</b> detections</div>
           {summary.running && live && live.speed_x > 0 && <div><b>{Math.round(live.speed_x)}x</b> real time</div>}
