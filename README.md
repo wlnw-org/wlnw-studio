@@ -38,7 +38,7 @@ cd app && pnpm install && pnpm tauri dev
 ```
 
 The engine also works from the command line: `cargo run --release -p wlnw-engine --bin wlnw` lists its commands.
-Design notes: [docs/SCOPE.md](docs/SCOPE.md); model conversion and accuracy checks: [docs/SPIKE.md](docs/SPIKE.md).
+Model conversion and accuracy checks: [docs/SPIKE.md](docs/SPIKE.md).
 
 ## Code signing policy
 
