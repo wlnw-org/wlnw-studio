@@ -474,6 +474,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            wlnw_engine::birdnet::init_threads();
             // Updates come from the latest GitHub release (latest.json), checked by the UI on startup.
             #[cfg(desktop)]
             {

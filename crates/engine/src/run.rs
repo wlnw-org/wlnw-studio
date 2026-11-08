@@ -143,6 +143,7 @@ struct RunStats { files: HashMap<i64, f64>, failed: std::collections::HashSet<i6
 /// Runs every (recording, model) pair still to do. `on_progress` is called before each pair; set `stop` to finish the current pair and return.
 /// Each run is written to the project history with what it did.
 pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, on_progress: impl FnMut(&Progress)) -> Result<Progress> {
+    crate::birdnet::boost_thread();
     history::close_interrupted(p)?;
     let have: Vec<String> = models.iter().map(|m| m.info().id.clone()).collect();
     let mut used: Vec<String> = plan(p, &have)?.into_values().flatten().collect();

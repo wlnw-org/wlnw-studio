@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Processing runs for hours while the window is in the background: App Nap would slow it down. -->
+  <key>LSAppNapIsDisabled</key>
+  <true/>
+</dict>
+</plist>

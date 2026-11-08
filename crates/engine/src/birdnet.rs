@@ -68,9 +68,27 @@ fn env() -> Result<&'static ort::environment::Environment> {
     Ok(ENV.get_or_init(|| e))
 }
 
+/// Asks macOS to run this thread, and the model threads it creates, on the fast cores. A GUI app's worker threads can
+/// otherwise get a low priority (and App Nap when the window is in the background), which made the app about 5 times
+/// slower than the command line on the same files. No effect on other systems.
+pub fn boost_thread() {
+    #[cfg(target_os = "macos")]
+    {
+        extern "C" { fn pthread_set_qos_class_self_np(qos: u32, relative_priority: i32) -> i32; }
+        const QOS_CLASS_USER_INITIATED: u32 = 0x19;
+        unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0); }
+    }
+}
+
+/// Call once at start-up: the shared worker pool (spectrograms, decoding) runs at the same raised priority.
+pub fn init_threads() {
+    let _ = rayon::ThreadPoolBuilder::new().start_handler(|_| boost_thread()).build_global();
+}
+
 pub(crate) fn threads() -> usize { std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4) }
 
 pub(crate) fn session(path: PathBuf, threads: usize) -> Result<Session> {
+    boost_thread(); // the session's worker threads take the priority of the thread that creates them
     let env = env()?;
     // CPU only: the "max efficiency" device policy of newer ONNX Runtime APIs gave wrong scores on macOS (docs/SPIKE.md).
     Ok(Session::builder(env)?

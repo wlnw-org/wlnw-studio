@@ -35,6 +35,7 @@ fn models_dir(dir: Option<&String>) -> PathBuf {
 }
 
 fn main() -> Result<()> {
+    wlnw_engine::birdnet::init_threads();
     let a: Vec<String> = std::env::args().collect();
     let cmd = a.get(1).map(String::as_str).unwrap_or("help");
     let proj = || -> Result<Project> { Project::open(Path::new(a.get(2).context("project file?")?)) };
