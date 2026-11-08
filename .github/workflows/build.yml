@@ -105,6 +105,24 @@ jobs:
         if: matrix.target == 'macos-x64'
         run: echo "ORT_LIB_PATH=$RUNNER_TEMP/ort-x64/Release" >> "$GITHUB_ENV"  # Release/*.a with deps in Release/_deps/<lib>-build
 
+      # Tauri downloads its bundling tools (NSIS, WiX, linuxdeploy) from GitHub releases, which sometimes answer 504 for
+      # a while; kept between runs so a release build does not depend on those downloads.
+      - name: Tauri bundling tools cache
+        if: matrix.target == 'windows-x64' || matrix.target == 'linux-x64'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ${{ matrix.target == 'windows-x64' && '~/AppData/Local/tauri' || '~/.cache/tauri' }}
+          key: tauri-tools-${{ matrix.target }}-v1
+
+      # appimagetool fetches the AppImage runtime on every build; fetched here with retries and handed to it.
+      - name: AppImage runtime (Linux)
+        if: matrix.target == 'linux-x64'
+        run: |
+          f="$HOME/.cache/tauri/runtime-x86_64"
+          [ -s "$f" ] || curl -fsSL --retry 12 --retry-all-errors --retry-delay 20 -o "$f" --create-dirs \
+            https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
+          echo "LDAI_RUNTIME_FILE=$f" >> "$GITHUB_ENV"
+
       - name: Install app dependencies
         working-directory: app
         run: pnpm install --frozen-lockfile
@@ -198,7 +216,7 @@ jobs:
           esac
           # Bundling downloads tools from GitHub releases (NSIS, WiX, AppImage runtime), which sometimes answer 504, and
           # hdiutil on hosted Macs sometimes finds the disk image busy; a retry reuses the compiled app.
-          for i in 1 2 3 4; do pnpm tauri build $args && break; [ "$i" = 4 ] && exit 1; echo "::warning::bundling failed, retrying"; rm -rf ../target/release/bundle/dmg; sleep $((i * 45)); done
+          for i in 1 2 3 4 5 6; do pnpm tauri build $args && break; [ "$i" = 6 ] && exit 1; echo "::warning::bundling failed, retrying"; rm -rf ../target/release/bundle/dmg; sleep $((i * 40)); done
 
       - name: Check signatures (Windows)
         if: matrix.target == 'windows-x64'
