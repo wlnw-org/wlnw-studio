@@ -4,6 +4,8 @@ import { api, fmtHours, modelName, modelTag, type Deployment, type Summary } fro
 import MapPicker from "../MapPicker";
 import { AroundRecorders, usePrefetch } from "../Online";
 
+const plural = (n: number, one: string, many: string) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
+
 /** Add recordings, then confirm each recorder's place and time zone (filled in from the files when they carry it). */
 export default function Recordings({ summary, refresh, onError, next }: { summary: Summary; refresh: () => void; onError: (e: string) => void; next: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -18,8 +20,8 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
       setReport(`${r.found.toLocaleString()} recordings found, ${r.added.toLocaleString()} new` +
         (r.images_found ? `, and ${r.images_found.toLocaleString()} camera-trap images, ${r.images_added.toLocaleString()} new` : "") +
         `, in ${r.deployments} ${r.deployments === 1 ? "recorder or camera" : "recorders and cameras"}.` +
-        (r.without_time ? ` ${r.without_time.toLocaleString()} recordings have no date in their name or metadata and will be skipped for publishing.` : "") +
-        (r.images_without_time ? ` ${r.images_without_time.toLocaleString()} images have no date in their EXIF data and will be skipped for publishing.` : ""));
+        (r.without_time ? ` ${plural(r.without_time, "recording has", "recordings have")} no date in their name or metadata and will be skipped for publishing.` : "") +
+        (r.images_without_time ? ` ${plural(r.images_without_time, "image has", "images have")} no date in their EXIF data and will be skipped for publishing.` : ""));
       refresh();
     } catch (e) { onError(String(e)); }
     setBusy(false);
@@ -32,8 +34,8 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
     try {
       const r = await api.importResults(f);
       setReport(`${r.added.toLocaleString()} new detections from ${r.model.split(", ").map(modelTag).join(" and ")}: ${r.matched.toLocaleString()} of ${r.rows.toLocaleString()} rows matched to recordings in this project.` +
-        (r.unmatched ? ` ${r.unmatched.toLocaleString()} rows did not match a recording here (for example ${r.unmatched_examples.slice(0, 3).join(", ")}). Add those recordings first, then import again: nothing is added twice.` : "") +
-        (r.no_species ? ` ${r.no_species.toLocaleString()} rows had no species (noise or no ID)${r.unknown_names.length ? `, or a name Studio did not know: ${r.unknown_names.slice(0, 5).join(", ")}` : ""}.` : "") +
+        (r.unmatched ? ` ${plural(r.unmatched, "row", "rows")} did not match a recording here (for example ${r.unmatched_examples.slice(0, 3).join(", ")}). Add those recordings first, then import again: nothing is added twice.` : "") +
+        (r.no_species ? ` ${plural(r.no_species, "row", "rows")} had no species (noise or no ID)${r.unknown_names.length ? `, or a name Studio did not know: ${r.unknown_names.slice(0, 5).join(", ")}` : ""}.` : "") +
         (r.added ? " Review them on the Review screen." : ""));
       refresh();
     } catch (e) { onError(String(e)); }
@@ -115,7 +117,7 @@ function Row({ d, cams, onSaved, onError }: { d: Deployment; cams: boolean; onSa
         {country.trim().toUpperCase() === "USA" && <input className="country" value={state} maxLength={2} onChange={(e) => setState(e.target.value)} placeholder="State" aria-label="US state code" />}
         {countryDirty && <button className="small-btn" onClick={saveCountry}>Save</button>}
       </>}</td>}
-      <td className="small">{[...d.models.map(modelName), ...(d.images > 0 ? ["SpeciesNet"] : [])].join(" + ") || "none"}{d.perch_region && <small className="muted block">Perch first in this region</small>}</td>
+      <td className="small">{[...(d.files > 0 ? d.models.map(modelName) : []), ...(d.images > 0 ? ["SpeciesNet"] : [])].join(" + ") || "none"}{d.perch_region && d.files > 0 && <small className="muted block">Perch first in this region</small>}</td>
       <td>{dirty ? <button onClick={() => save()}>Save</button> : saved ? <span className="ok">Saved</span> : null}</td>
       {map && <MapPicker lat={d.lat} lon={d.lon} title={v.name} onClose={() => setMap(false)}
         onPick={(la, lo) => { const patch = { lat: String(la), lon: String(lo) }; setV({ ...v, ...patch }); setMap(false); save(patch); }} />}

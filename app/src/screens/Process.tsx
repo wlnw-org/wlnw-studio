@@ -69,7 +69,7 @@ export default function Process({ summary, live, refresh, onError, next, showFil
         {p.errors > 0 && <p className="warn">{p.errors} {p.errors === 1 ? "file" : "files"} could not be read (damaged or not audio). They are skipped. <button className="link inline" onClick={() => showFiles("failed")}>See which and why</button></p>}
         {!summary.running && summary.deployments.some((d) => d.models.length === 0) && <p className="warn">Some recorders have no model to run.</p>}
         <p className="small"><button className="link" onClick={() => showFiles()}>See every recording and its status</button></p>
-        <p className="muted small">Per recorder: {summary.deployments.map((d) => `${d.name}: ${d.models.map(modelName).join(" + ")}`).join("; ")}</p>
+        <p className="muted small">Per recorder: {summary.deployments.map((d) => `${d.name}: ${[...(d.files > 0 ? d.models.map(modelName) : []), ...(d.images > 0 ? ["SpeciesNet"] : [])].join(" + ") || "none"}`).join("; ")}</p>
       </div>
       {p.jobs_done > 0 && <div className="foot"><button className="primary" onClick={next}>Next: review</button></div>}
     </section>
