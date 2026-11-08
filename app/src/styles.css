@@ -197,3 +197,4 @@ nav.secondary .step { padding-left: 42px; }
 .update-banner { position: fixed; right: 16px; bottom: 16px; z-index: 50; width: 300px; display: flex; flex-direction: column; gap: 8px;
   background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 8px; padding: 12px 14px; box-shadow: 0 4px 16px rgb(0 0 0 / 0.15); }
 .update-banner b { display: block; } .update-banner small { color: var(--muted); } .update-banner small.error { color: var(--bad); }
+.help-links { gap: 20px; justify-content: center; margin-top: 8px; }

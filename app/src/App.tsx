@@ -78,8 +78,7 @@ export default function App() {
           )}
           {error && <p className="error">{error} <ErrorHelp /></p>}
           <OnlineSetting />
-          <HelpLink />
-        <FeedbackLink />
+          <div className="row help-links"><HelpLink /><FeedbackLink /></div>
         </div>
       </main>
     );
