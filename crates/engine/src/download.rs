@@ -60,9 +60,19 @@ pub const CATALOG: &[Pack] = &[
         id: "speciesnet-4.0.3a", name: "SpeciesNet (camera traps)",
         description: "Google's camera-trap model with Microsoft's MegaDetector v6: finds animals, people and vehicles in photos and names about 2,000 species and groups, checked against the camera's country.",
         licence: "Apache-2.0", licence_url: "https://www.apache.org/licenses/LICENSE-2.0", dir: "speciesnet",
-        files: &[],
-        downloadable: false,
-        note: "Not downloadable yet: the converted files are not published anywhere. Both models may be shared (SpeciesNet Apache 2.0, MegaDetector v6 MIT weights CC BY 4.0). Make the six files with spike/speciesnet_export.py (see docs/SPIKE.md), then add them from a folder.",
+        // Converted files hosted on the wlnw-studio "models-speciesnet-4.0.3a" pre-release (never "latest", so the updater ignores it).
+        // SpeciesNet Apache 2.0; MegaDetector v6 MIT weights CC BY 4.0: credits in NOTICE.txt.
+        files: &[
+            PackFile { name: "detector.onnx", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-speciesnet-4.0.3a/detector.onnx"], sha256: "742e467c4e56b699d69f805545dfcbbc7252a67fe39b0f1ba0e6590a68c4a86b", size: 29_141_004 },
+            PackFile { name: "speciesnet_v403a.onnx", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-speciesnet-4.0.3a/speciesnet_v403a.onnx"], sha256: "4621fc1472b3889a3dcce755a9c9bb026f29665884228959b250fc40ddf69d17", size: 223_998_767 },
+            PackFile { name: "labels.txt", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-speciesnet-4.0.3a/labels.txt"], sha256: "e0c41415d9b29dfd6d2e2494205d1197d28595cc6f69cb129495f9827155547e", size: 255_693 },
+            PackFile { name: "taxonomy.txt", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-speciesnet-4.0.3a/taxonomy.txt"], sha256: "4bd5d1a85a63857f557d487c5d86c0911173c59b34977ebc0ee909484ce277f2", size: 357_417 },
+            PackFile { name: "geofence.json", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-speciesnet-4.0.3a/geofence.json"], sha256: "27a88e932e411f73a4937c935fe36cf61a9060a1c488f4c69ade3f19eb8507d1", size: 6_264_811 },
+            PackFile { name: "speciesnet.json", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-speciesnet-4.0.3a/speciesnet.json"], sha256: "5e8dfa016f6b63ac688df9b48e19fdef0f9a66a8caa1fb242a3090745a000cc7", size: 206 },
+            PackFile { name: "NOTICE.txt", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-speciesnet-4.0.3a/NOTICE.txt"], sha256: "51e3321b81553dc3b218bdfb45a523d7425701e0d1413ec92b880d9fc6406d0f", size: 1_440 },
+        ],
+        downloadable: true,
+        note: "",
     },
 ];
 
