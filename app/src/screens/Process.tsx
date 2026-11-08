@@ -35,7 +35,7 @@ export default function Process({ summary, live, refresh, onError, next, showFil
         <label className="choice"><input type="radio" checked={auto} onChange={() => choose([])} disabled={summary.running} />
           <span><b>Best for each recorder&apos;s region</b> (recommended)<small>Perch first in Africa and South Asia, where BirdNET knows fewer species, with BirdNET as a second opinion. BirdNET elsewhere: it is faster and filters species by place and week. Bat recordings (192 kHz and above) go to BatDetect2 when it is installed.</small></span></label>
         <label className="choice"><input type="radio" checked={!auto} onChange={() => choose(summary.models.map((m) => m.id))} disabled={summary.running} />
-          <span><b>Choose myself</b><small>The same models for every recorder.</small></span></label>
+          <span><b>Choose myself</b><small>The same models for every recorder. BatDetect2 only runs on bat recordings (192 kHz and above); bird models run on every recorder you tick them for, bat recorders included.</small></span></label>
         <div className="models">
           {summary.models.map((m) => (
             <label key={m.id} className={`model ${auto ? "dim" : ""}`}>

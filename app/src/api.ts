@@ -9,8 +9,8 @@ export interface Summary { path: string; name: string; deployments: Deployment[]
 export interface Similar { window_id: number; file_id: number; path: string; start_s: number; end_s: number; similarity: number; site: string }
 export interface TrainReport { classes: [string, string, number, number, number | null][]; skipped: [string, number][]; detections: number }
 export interface SpeciesRow { label: number; model: string; scientific: string; common: string; detections: number; kept: number; reviewed: number; yes: number; no: number; threshold: number; threshold_source: string; precision: number | null; max_conf: number }
-export interface Detection { id: number; file_id: number; path: string; deployment_id: number; start_s: number; end_s: number; label: number; scientific: string; common: string; model: string; confidence: number; in_range: boolean; utc: string | null; lat: number | null; lon: number | null; site: string; verdict: string | null }
-export interface Clip { wav: string; spec: string; width: number; height: number; offset_s: number; window_s: number; total_s: number; max_khz: number }
+export interface Detection { id: number; file_id: number; path: string; deployment_id: number; start_s: number; end_s: number; label: number; scientific: string; common: string; model: string; confidence: number; detection_score?: number | null; in_range: boolean; utc: string | null; lat: number | null; lon: number | null; site: string; verdict: string | null }
+export interface Clip { wav: string; spec: string; width: number; height: number; offset_s: number; window_s: number; total_s: number; max_khz: number; playback: number; slowed: number }
 export interface ScanReport { found: number; added: number; without_time: number; deployments: number }
 export interface PublishReport { sent: number; added: number; duplicates: number; left_out: number; status: string | null }
 
@@ -49,7 +49,7 @@ export const api = {
   stopRun: () => invoke<void>("stop_run"),
   species: () => invoke<SpeciesRow[]>("species"),
   reviewQueue: (label: number, model: string, n: number) => invoke<Detection[]>("review_queue", { label, model, n }),
-  clip: (file: string, startS: number, endS: number) => invoke<Clip>("clip", { file, startS, endS }),
+  clip: (file: string, startS: number, endS: number, model?: string) => invoke<Clip>("clip", { file, startS, endS, model: model ?? null }),
   nameSound: (detection: number, scientific: string, common: string, present: boolean) => invoke<boolean>("name_sound", { detection, scientific, common, present }),
   similar: (detection: number, n: number) => invoke<Similar[]>("similar", { detection, n }),
   labelWindow: (window: number, scientific: string, common: string, present: boolean) => invoke<void>("label_window", { window, scientific, common, present }),

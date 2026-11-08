@@ -326,17 +326,17 @@ function ClipView({ d, onVerdict, onMove }: { d: Detection; onVerdict: (v: "yes"
 
   useEffect(() => {
     let off = false;
-    api.clip(d.path, d.start_s, d.end_s).then((c) => {
+    api.clip(d.path, d.start_s, d.end_s, d.model).then((c) => {
       if (off) return;
       setClip(c);
       const a = new Audio(`data:audio/wav;base64,${c.wav}`);
-      a.ontimeupdate = () => setT(a.currentTime);
+      a.ontimeupdate = () => setT(a.currentTime / (c.playback || 1));
       a.onended = () => setPlaying(false);
       audio.current = a;
       a.play().then(() => setPlaying(true)).catch(() => {});
     }).catch((e) => { if (!off) setFailed(String(e)); });
     return () => { off = true; audio.current?.pause(); };
-  }, [d.path, d.start_s, d.end_s]);
+  }, [d.path, d.start_s, d.end_s, d.model]);
 
   useEffect(() => {
     if (!clip || !canvas.current) return;
@@ -374,9 +374,12 @@ function ClipView({ d, onVerdict, onMove }: { d: Detection; onVerdict: (v: "yes"
         {clip && <div className="window" style={box} />}
         {clip && <div className="cursor" style={{ left: `${(t / total) * 100}%` }} />}
         {clip && <span className="khz">{clip.max_khz} kHz</span>}
+        {clip && clip.slowed > 1 && <span className="slowed">played {Math.round(clip.slowed)}x slower</span>}
       </div>
       <div className="clip-meta">
-        <span>Confidence <b>{d.confidence.toFixed(2)}</b></span>
+        {d.detection_score != null
+          ? <><span>Species <b>{d.confidence.toFixed(2)}</b></span><span>Bat call <b>{d.detection_score.toFixed(2)}</b></span></>
+          : <span>Confidence <b>{d.confidence.toFixed(2)}</b></span>}
         <span>{d.site}</span>
         <span>{d.utc ? new Date(d.utc + "Z").toLocaleString() : "time unknown"}</span>
         <span className="muted mono" title={d.path}>{d.path.split(/[\\/]/).pop()} at {d.start_s.toFixed(0)} s</span>

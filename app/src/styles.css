@@ -90,6 +90,7 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 .spec .window { position: absolute; top: 0; bottom: 0; border-left: 2px solid rgba(255,255,255,0.75); border-right: 2px solid rgba(255,255,255,0.75); background: rgba(255,255,255,0.05); pointer-events: none; }
 .spec .cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #ffd34d; pointer-events: none; }
 .spec .khz { position: absolute; top: 6px; left: 8px; font-size: 11px; color: rgba(255,255,255,0.7); }
+.spec .slowed { position: absolute; top: 6px; right: 8px; font-size: 11px; color: rgba(255,255,255,0.7); }
 .loading { color: #9aa; display: grid; place-items: center; height: 100%; }
 .clip-meta { display: flex; flex-wrap: wrap; gap: 6px 20px; margin: 10px 0; font-size: 13px; }
 .verdicts { display: flex; gap: 10px; flex-wrap: wrap; }

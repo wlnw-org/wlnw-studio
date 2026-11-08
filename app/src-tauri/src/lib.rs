@@ -198,14 +198,16 @@ fn species(s: State<App>) -> R<Vec<review::SpeciesRow>> { review::species(&open(
 fn review_queue(label: i64, model: String, n: usize, s: State<App>) -> R<Vec<wlnw_engine::store::Detection>> { review::queue(&open(&s)?, label, &model, n).map_err(err) }
 
 #[derive(Serialize)]
-struct ClipOut { wav: String, spec: String, width: usize, height: usize, offset_s: f64, window_s: f64, total_s: f64, max_khz: f64 }
+struct ClipOut { wav: String, spec: String, width: usize, height: usize, offset_s: f64, window_s: f64, total_s: f64, max_khz: f64, playback: f64, slowed: f64 }
 
+/// `model`: the detection's model, so bat detections get an ultrasonic, slowed-down clip.
 #[tauri::command]
-async fn clip(file: String, start_s: f64, end_s: f64) -> R<ClipOut> {
+async fn clip(file: String, start_s: f64, end_s: f64, model: Option<String>) -> R<ClipOut> {
     tauri::async_runtime::spawn_blocking(move || {
-        let c = review::clip(Path::new(&file), start_s, end_s).map_err(err)?;
+        let c = review::clip_for(Path::new(&file), start_s, end_s, model.as_deref()).map_err(err)?;
         let b = base64::engine::general_purpose::STANDARD;
-        Ok(ClipOut { wav: b.encode(&c.wav), spec: b.encode(&c.spec), width: c.width, height: c.height, offset_s: c.offset_s, window_s: c.window_s, total_s: c.total_s, max_khz: c.max_khz })
+        Ok(ClipOut { wav: b.encode(&c.wav), spec: b.encode(&c.spec), width: c.width, height: c.height, offset_s: c.offset_s, window_s: c.window_s, total_s: c.total_s, max_khz: c.max_khz,
+            playback: c.playback, slowed: c.slowed })
     }).await.map_err(err)?
 }
 
