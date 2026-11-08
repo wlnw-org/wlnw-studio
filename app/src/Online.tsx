@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { ask } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { api, type Around, type Deployment, type Detection, type OnlineStatus, type SpeciesInfo } from "./api";
 
@@ -144,7 +145,10 @@ export function ShareSetting() {
     try { await api.setShare(on, newKey()); load(); if (on) api.shareNow().catch(() => {}); } catch (e) { setNote(String(e)); }
   }
   async function remove() {
-    if (!confirm("Delete every answer this computer has shared with Wildlife Network? This cannot be undone, and sharing is turned off.")) return;
+    // window.confirm does not wait in the app's window (it returned at once and the delete ran unasked): use the system dialog.
+    const sure = await ask("Delete every answer this computer has shared with Wildlife Network? This cannot be undone, and sharing is turned off.",
+      { title: "Delete shared answers", kind: "warning", okLabel: "Delete", cancelLabel: "Keep" }).catch(() => false);
+    if (!sure) return;
     try { const n = await api.shareDelete(); setNote(`Deleted ${n.toLocaleString()} shared answers from wlnw.org. Sharing is off.`); load(); }
     catch { setNote("Could not reach wlnw.org. Try again when you are online."); }
   }
