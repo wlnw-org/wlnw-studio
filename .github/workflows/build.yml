@@ -192,12 +192,13 @@ jobs:
         run: |
           case "${{ matrix.target }}" in
             windows-x64) args="--bundles nsis,msi --config src-tauri/tauri.sign.json" ;;
-            linux-x64) args="--bundles appimage,deb" ;;
+            # linuxdeploy's bundled strip cannot read Ubuntu 24.04 libraries (.relr.dyn), so libraries are copied unstripped.
+            linux-x64) args="--bundles appimage,deb --verbose"; export NO_STRIP=true ;;
             *) args="--bundles app,dmg" ;;
           esac
           # Bundling downloads tools from GitHub releases (NSIS, WiX, AppImage runtime), which sometimes answer 504, and
           # hdiutil on hosted Macs sometimes finds the disk image busy; a retry reuses the compiled app.
-          for i in 1 2 3; do pnpm tauri build $args && break; [ "$i" = 3 ] && exit 1; echo "::warning::bundling failed, retrying"; rm -rf ../target/release/bundle/dmg; sleep 30; done
+          for i in 1 2 3 4; do pnpm tauri build $args && break; [ "$i" = 4 ] && exit 1; echo "::warning::bundling failed, retrying"; rm -rf ../target/release/bundle/dmg; sleep $((i * 45)); done
 
       - name: Check signatures (Windows)
         if: matrix.target == 'windows-x64'
