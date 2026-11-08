@@ -33,7 +33,7 @@ export default function Process({ summary, live, refresh, onError, next, showFil
       {summary.models.length > 0 && <div className="card">
         <h3>Which models to run</h3>
         <label className="choice"><input type="radio" checked={auto} onChange={() => choose([])} disabled={summary.running} />
-          <span><b>Best for each recorder&apos;s region</b> (recommended)<small>Perch first in Africa and South Asia, where BirdNET knows fewer species, with BirdNET as a second opinion. BirdNET elsewhere: it is faster and filters species by place and week.</small></span></label>
+          <span><b>Best for each recorder&apos;s region</b> (recommended)<small>Perch first in Africa and South Asia, where BirdNET knows fewer species, with BirdNET as a second opinion. BirdNET elsewhere: it is faster and filters species by place and week. Bat recordings (192 kHz and above) go to BatDetect2 when it is installed.</small></span></label>
         <label className="choice"><input type="radio" checked={!auto} onChange={() => choose(summary.models.map((m) => m.id))} disabled={summary.running} />
           <span><b>Choose myself</b><small>The same models for every recorder.</small></span></label>
         <div className="models">
@@ -41,7 +41,9 @@ export default function Process({ summary, live, refresh, onError, next, showFil
             <label key={m.id} className={`model ${auto ? "dim" : ""}`}>
               <input type="checkbox" disabled={auto || summary.running} checked={auto ? false : summary.chosen.includes(m.id)} onChange={() => toggle(m.id)} />
               <span><b>{m.name} {m.version}</b>
-                <small>{m.id === "perch-2.0" ? "About 15,000 species of birds, frogs, insects and mammals. Needed for the Wildlife Network Classifier." : "About 6,500 species, mostly birds, filtered by place and week."}
+                <small>{m.id === "perch-2.0" ? "About 15,000 species of birds, frogs, insects and mammals. Needed for the Wildlife Network Classifier."
+                  : m.id === "batdetect2-uk" ? "17 UK bat species, call by call, in ultrasonic recordings (192 kHz and above, or time expanded). Non-commercial use only."
+                  : "About 6,500 species, mostly birds, filtered by place and week."}
                   {" "}About {Math.round(m.speed_x)}x real time on a recent laptop. Licence: <a href={m.licence_url} target="_blank" rel="noreferrer">{m.licence}</a>.</small></span>
             </label>
           ))}

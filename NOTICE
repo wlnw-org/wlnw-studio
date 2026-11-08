@@ -11,4 +11,11 @@ their own licences. They are not stored in this repository; Studio downloads the
   University of Technology. CC BY-NC-SA 4.0: non-commercial use only. Not distributed with Studio; users who have the
   model files can add them. Cite: Kahl et al. (2021), Ecological Informatics 61, doi:10.1016/j.ecoinf.2021.101236.
 
+- BatDetect2 (UK model), by Oisin Mac Aodha, Santiago Martinez Balvanera and contributors
+  (github.com/macaodha/batdetect2). CC BY-NC 4.0: non-commercial use only. Not distributed with Studio; users make the
+  ONNX files from the published checkpoint with spike/batdetect2_export.py and add them. Studio's spectrogram, resampling
+  and call decoding (crates/engine/src/batdetect.rs) reproduce BatDetect2's published method so its results match.
+  Cite: Mac Aodha et al. (2022), Towards a General Approach for Bat Echolocation Detection and Classification,
+  bioRxiv, doi:10.1101/2022.12.14.520490.
+
 Map tiles in the place picker: OpenFreeMap, with data from OpenStreetMap contributors.

@@ -32,3 +32,23 @@ BirdNET V2.4 model weights are CC BY-NC-SA 4.0. The converted CNN and extracted 
 - Input 5 s at 32 kHz; per window: remove the mean, scale the peak to 0.25. Probabilities: softmax over 14,795 classes.
 - Speed: 65x real time on the M3 (batches of 16), five times slower than BirdNET: about 45 h per TB on this laptop.
 - Embeddings (1,536 per window) are stored as half floats next to the project (3 KB per 5 s window, about 6.4 GB per TB of audio) for the Wildlife Network Classifier and "find more like this".
+
+## BatDetect2 (added 8 November 2026)
+- Model: BatDetect2's default UK model from batdetect2 2.0.0b3 (checkpoint `batdetect2_uk_same.ckpt`, SHA-256 52e3f329...6adcf, identical in the GitHub repo at commit 1920373 and on PyPI). 17 UK bat species, one detection per echolocation call with a box (start, end, low and high frequency).
+- Licence: the whole repository, code and weights, is CC BY-NC 4.0 (LICENSE.md, pyproject, and the FAQ: "currently for non-commercial use"). No ShareAlike, so redistribution is allowed for non-commercial use with credit, but no converted copy is published anywhere, so the pack is not downloadable: users make it with `spike/batdetect2_export.py` (ONNX, opset 17, 7.6 MB; plus `batdetect2.json` and `labels.txt`) and add it from a folder. Many UK bat surveys are commercial (planning consultancy): they may not use this model.
+- Split as for BirdNET: only the network (U-Net with self-attention, input 1 x 128 x 500 per 0.5 s clip) is in ONNX. Rust (`crates/engine/src/batdetect.rs`) does the rest exactly as BatDetect2: recordings cut into 0.5 s clips at their own rate (no overlap, a last shorter clip dropped), each clip resampled to 256 kHz on its own with scipy's `resample_poly` (Kaiser beta 5, half length 10 x max(up, down), zero padding; reimplemented), STFT with a periodic Hann window of 512 samples, hop 128, centred with reflection, magnitude of bins 20 to 239 (10 to 120 kHz), BatDetect2's PCEN (input x 2^31, IIR smoother s = 0.0488, gain 0.98, bias 2, power 0.5), spectral mean subtraction, bilinear resize to 128 x 500 (align_corners false). After the network: 9 x 9 max-pool peak picking on the detection map, the 50 strongest peaks per clip at or above 0.01, box from the size map (bottom-left anchor, width / 1000 s, height / 0.0011636 Hz), class = highest of the 17 class maps. Studio stores one detection per call: top species and its score (BatDetect2's `class_prob`), at or above 0.1.
+- Time expansion: GUANO `TE` is read; the recording is treated as header rate x TE, and times are stored in the file's own seconds. Checked with Echometer.wav rewritten as 25.6 kHz with `TE: 10`: the same 51 calls, times exactly 10 x.
+- Default model: a recorder whose first recording is at 192 kHz or more (after time expansion) gets BatDetect2 when installed, otherwise the bird models as before.
+
+| Check | Result |
+|---|---|
+| ONNX vs PyTorch network, 16 clips | max difference 1.1e-6 (detection and class maps), 1.4e-4 (size map, values up to tens) |
+| Rust resampler vs scipy, 192, 312.5, 384 and 500 kHz | max difference 1.2e-7 |
+| Rust spectrogram vs BatDetect2 preprocessor, each stage | relative difference under 6e-6 (unit tests, `tests/fixtures/batdetect2_preprocess.json`) |
+| Calls vs `BatDetect2API.process_file` (CPU), 10 recordings shipped in the repo: 500, 384 (2), 192, 312.5 (5) and 256 kHz, 30.6 s | all 3,000 calls at detection >= 0.01 matched (697 at >= 0.1, 283 at >= 0.3): same start and end time (difference 0), same top species on every call, detection and class scores within 7e-5 |
+| Speed, Apple M3, 8 cores | 7.4x real time (30 s of audio in 4.05 s); the network alone runs at about 8x in ONNX Runtime, so it sets the pace. Python reference: about 1.4x. One hour of 256 kHz audio takes about 8 minutes |
+
+Gotchas
+- Resampling the whole recording at once (Studio's rubato stream) instead of clip by clip changed detection scores by up to 0.22 at clip edges and on upsampled 192 kHz audio, and rubato's start delay shifted times; matching BatDetect2 needs its own per-clip polyphase resampling. BirdNET and Perch still use the rubato stream (unchanged).
+- The bundled example audio (example_data, tests/data) is CC BY-NC like the rest of the repository: used for checks only, never committed here.
+- Review clips and spectrograms in the app are drawn at 48 kHz, which cannot show a bat call; bat review needs its own clip rate (not done yet).
