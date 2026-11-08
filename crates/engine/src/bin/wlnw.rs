@@ -15,12 +15,17 @@
 //!   wlnw similar <project.wlnw> <detection id> [n]
 //!   wlnw train <project.wlnw>                       train the Wildlife Network Classifier
 //!   wlnw wnc-export <project.wlnw> <out.wnc> | wlnw wnc-import <project.wlnw> <file.wnc>
-//!   wlnw export <project.wlnw> csv|wdx|dwca|raven <out>
+//!   wlnw import <project.wlnw> <file or folder>     results from BirdNET-Analyzer, BirdNET-Pi/Go or Kaleidoscope
+//!   wlnw answers-export <project.wlnw> <out.wlnr> [your name]   your review answers, for a second reviewer
+//!   wlnw answers-load <project.wlnw> <file.wlnr> [label]        another reviewer's answers
+//!   wlnw agreement <project.wlnw> [reviewer]         agreement per species and disagreements
+//!   wlnw settle <project.wlnw> <reviewer> <detection id> yes|no|unsure
+//!   wlnw export <project.wlnw> csv|wdx|dwca|raven|kaleidoscope <out>
 //!   wlnw publish <project.wlnw> <dataset id> [--submit]   (key in WLNW_UPLOAD_KEY)
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use wlnw_engine::{export, files, history, models, publish, review, run, scan, store::Project, wnc};
+use wlnw_engine::{agreement, export, import, files, history, models, publish, review, run, scan, store::Project, wnc};
 
 fn models_dir(dir: Option<&String>) -> PathBuf {
     dir.map(PathBuf::from).or_else(|| std::env::var("WLNW_MODELS").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("models"))
@@ -129,12 +134,52 @@ fn main() -> Result<()> {
                 Some("wdx") => (export::wdx(&p, out), "WDX"),
                 Some("dwca") => (export::dwca(&p, out), "a Darwin Core Archive"),
                 Some("raven") => (export::raven_audacity(&p, out), "Raven and Audacity tables"),
-                _ => bail!("format: csv, wdx, dwca or raven"),
+                Some("kaleidoscope") => (export::kaleidoscope(&p, out), "a Kaleidoscope id.csv"),
+                _ => bail!("format: csv, wdx, dwca, raven or kaleidoscope"),
             };
             history::log(&p, "export", &t, &r, |k| format!("Exported {} detections as {name} to {} (command line)", history::n(*k as i64), out.display()), "Export failed");
             let n = r?;
             println!("{n} detections exported to {}", out.display());
         }
+        "import" => {
+            let p = proj()?;
+            let src = a.get(3).context("results file or folder?")?;
+            let t = history::now(&p);
+            // Installed models' labels turn common names (Raven tables) into scientific names.
+            let (ms, _) = models::available(&models_dir(None));
+            let labels: Vec<models::Label> = ms.iter().flat_map(|m| m.labels().to_vec()).collect();
+            let r = import::import(&p, Path::new(src), &labels);
+            history::log(&p, "import", &t, &r, |x| import::summary(x, src) + " (command line)", "Import failed");
+            let r = r?;
+            println!("{}", serde_json::to_string_pretty(&r)?);
+        }
+        "answers-export" => {
+            let p = proj()?;
+            let out = a.get(3).context("output .wlnr?")?;
+            let t = history::now(&p);
+            let r = agreement::export(&p, Path::new(out), a.get(4).map(String::as_str));
+            history::log(&p, "agreement", &t, &r, |n| format!("Saved {} review answers for a second reviewer to {out} (command line)", history::n(*n as i64)), "Saving answers failed");
+            println!("{} answers saved to {out}", r?);
+        }
+        "answers-load" => {
+            let p = proj()?;
+            let f = a.get(3).context(".wlnr file?")?;
+            let t = history::now(&p);
+            let r = agreement::load(&p, Path::new(f), a.get(4).map(String::as_str));
+            history::log(&p, "agreement", &t, &r, |x| format!("Loaded {} answers from {}: {} matched, {} not found (command line)", history::n(x.answers as i64), x.reviewer, history::n(x.matched as i64), history::n(x.unmatched as i64)), "Loading answers failed");
+            println!("{}", serde_json::to_string_pretty(&r?)?);
+        }
+        "agreement" => {
+            let r = agreement::report(&proj()?, a.get(3).map(String::as_str))?;
+            let Some(who) = &r.reviewer else { bail!("no second reviewer loaded yet: wlnw answers-load first") };
+            let pc = |v: Option<f64>| v.map_or("-".into(), |x| format!("{x:.0}%"));
+            let k = |v: Option<f64>| v.map_or("-".into(), |x| format!("{x:.2}"));
+            println!("{:<36} {:>5} {:>12} {:>12} {:>6}", format!("compared with {who}"), "both", "yes/no", "agree", "kappa");
+            for s in std::iter::once(&r.overall).chain(&r.species) { println!("{:<36} {:>5} {:>12} {:>12} {:>6}", s.scientific, s.both, s.yes_no, pc(s.percent), k(s.kappa)); }
+            println!("\n{} disagreements to settle, {} settled", r.disagreements.len(), r.settled);
+            for d in &r.disagreements { println!("{:>8}  {}  {:.1} s  {}  you {}, {who} {}", d.detection.id, d.detection.path, d.detection.start_s, d.detection.scientific, d.detection.verdict.as_deref().unwrap_or(""), d.other); }
+        }
+        "settle" => agreement::settle(&proj()?, a.get(3).context("reviewer?")?, a.get(4).context("detection id?")?.parse()?, a.get(5).context("yes, no or unsure?")?)?,
         "publish" => {
             let key = std::env::var("WLNW_UPLOAD_KEY").context("set WLNW_UPLOAD_KEY to the dataset's upload key")?;
             let p = proj()?;

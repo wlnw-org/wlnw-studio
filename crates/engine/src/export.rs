@@ -31,7 +31,9 @@ fn license_url(l: &str) -> &'static str { LICENSE_URL.iter().find(|(k, _)| *k ==
 fn utc(d: &Detection) -> String { d.utc.map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default() }
 /// The model's name as written in exports ("BirdNET 2.4", "Perch 2.0", "Wildlife Network Classifier").
 pub fn model_name(id: &str) -> String {
-    match id { "birdnet-2.4" => "BirdNET 2.4".into(), "perch-2.0" => "Perch 2.0".into(), x if x.starts_with("wnc") => "Wildlife Network Classifier".into(), x => x.into() }
+    match id { "birdnet-2.4" => "BirdNET 2.4".into(), "perch-2.0" => "Perch 2.0".into(), x if x.starts_with("wnc") => "Wildlife Network Classifier".into(),
+        // Imported results: the tool's name with no space, so WDX's classifier name/version split keeps it whole.
+        "import:birdnet-analyzer" => "BirdNET-Analyzer".into(), "import:birdnet-pi" => "BirdNET-Pi/BirdNET-Go".into(), "import:kaleidoscope" => "Kaleidoscope".into(), x => x.into() }
 }
 fn status(d: &Detection) -> &'static str { if d.verdict.as_deref() == Some("yes") { "verified by expert" } else { "unverified" } }
 
@@ -61,6 +63,21 @@ pub fn raven_audacity(p: &Project, dir: &Path) -> Result<usize> {
             writeln!(r, "{}\tSpectrogram 1\t1\t{:.1}\t{:.1}\t0\t15000\t{}\t{}\t{:.4}\t{}\t{:.1}", i + 1, d.start_s, d.end_s, tsv(&d.scientific), tsv(&d.common), d.confidence, tsv(path), d.start_s)?;
             writeln!(a, "{:.1}\t{:.1}\t{} ({:.2})", d.start_s, d.end_s, if d.common.is_empty() { &d.scientific } else { &d.common }, d.confidence)?;
         }
+    }
+    Ok(rows.len())
+}
+
+/// A Kaleidoscope-style id.csv: one row per accepted detection; MANUAL ID holds the species for detections reviewed yes.
+pub fn kaleidoscope(p: &Project, out: &Path) -> Result<usize> {
+    let rows = p.accepted()?;
+    let mut f = std::io::BufWriter::new(std::fs::File::create(out)?);
+    writeln!(f, "FOLDER,IN FILE,OFFSET,DURATION,AUTO ID*,MATCH RATIO,MANUAL ID")?;
+    for d in &rows {
+        let path = Path::new(&d.path);
+        let folder = path.parent().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+        let file = path.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+        writeln!(f, "{},{},{:.2},{:.2},{},{:.4},{}", q(&folder), q(&file), d.start_s, d.end_s - d.start_s, q(&d.scientific), d.confidence,
+            if d.verdict.as_deref() == Some("yes") { q(&d.scientific) } else { String::new() })?;
     }
     Ok(rows.len())
 }

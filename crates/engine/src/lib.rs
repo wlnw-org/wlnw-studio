@@ -1,10 +1,12 @@
 //! Wildlife Network Studio engine: everything the desktop app does, usable from the `wlnw` command line too.
+pub mod agreement;
 pub mod audio;
 pub mod birdnet;
 pub mod download;
 pub mod export;
 pub mod files;
 pub mod history;
+pub mod import;
 pub mod meta;
 pub mod models;
 pub mod perch;

@@ -64,6 +64,10 @@ CREATE TABLE IF NOT EXISTS history (id INTEGER PRIMARY KEY, kind TEXT NOT NULL, 
   status TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', detail TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE IF NOT EXISTS examples (window_id INTEGER NOT NULL REFERENCES windows(id) ON DELETE CASCADE, species INTEGER NOT NULL REFERENCES species(id),
   present INTEGER NOT NULL, at TEXT NOT NULL, PRIMARY KEY (window_id, species));
+-- Another reviewer's answers loaded from a .wlnr file (agreement.rs), kept apart from this project's own reviews.
+-- Settling a disagreement writes reviews and keeps the first answer in mine_before, so agreement figures do not change.
+CREATE TABLE IF NOT EXISTS reviews_other (reviewer TEXT NOT NULL, detection_id INTEGER NOT NULL REFERENCES detections(id) ON DELETE CASCADE,
+  verdict TEXT NOT NULL CHECK (verdict IN ('yes','no','unsure')), at TEXT NOT NULL, mine_before TEXT, settled_at TEXT, PRIMARY KEY (reviewer, detection_id));
 "#;
 
 impl Project {
