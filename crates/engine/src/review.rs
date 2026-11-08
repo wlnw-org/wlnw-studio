@@ -14,7 +14,7 @@ pub const BANDS: [f64; 10] = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.01]
 pub const MIN_REVIEWS: i64 = 8;
 pub const TARGET: f64 = 0.9;
 
-fn band(c: f64) -> usize { BANDS.iter().position(|&b| c < b).unwrap_or(BANDS.len()).saturating_sub(1).min(8) }
+pub fn band(c: f64) -> usize { BANDS.iter().position(|&b| c < b).unwrap_or(BANDS.len()).saturating_sub(1).min(8) }
 
 #[derive(Debug, Serialize)]
 pub struct SpeciesRow {
@@ -80,22 +80,36 @@ pub fn set_verdict(p: &Project, detection: i64, verdict: Option<&str>) -> Result
 /// detections the band holds, since clips were sampled evenly across bands. The threshold is the lowest band start at which
 /// the estimated precision of everything kept reaches `target`. Bands without reviews take the nearest reviewed band above.
 pub fn fit_threshold(p: &Project, species: i64, model: &str, target: f64) -> Result<Option<f64>> {
+    let mut st = p.db.prepare("SELECT d.confidence, r.verdict FROM detections d LEFT JOIN reviews r ON r.detection_id = d.id WHERE d.species = ?1 AND d.model = ?2 AND d.in_range = 1")?;
+    let rows: Vec<(f64, Option<String>)> = st.query_map(params![species, model], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+    store_fit(p, species, model, fit(&rows, target))
+}
+
+/// Writes a fitted threshold (or removes a fitted one when there are too few reviews). Returns the threshold.
+pub fn store_fit(p: &Project, species: i64, model: &str, fitted: Option<(f64, Option<f64>, i64)>) -> Result<Option<f64>> {
+    let Some((threshold, precision, reviewed)) = fitted else {
+        p.db.execute("DELETE FROM thresholds WHERE species = ?1 AND model = ?2 AND source = 'fitted'", params![species, model])?;
+        return Ok(None);
+    };
+    p.db.execute("INSERT INTO thresholds (species, model, threshold, precision, reviewed, source) VALUES (?1, ?2, ?3, ?4, ?5, 'fitted')
+        ON CONFLICT (species, model) DO UPDATE SET threshold = excluded.threshold, precision = excluded.precision, reviewed = excluded.reviewed, source = 'fitted'",
+        params![species, model, threshold, precision, reviewed])?;
+    Ok(Some(threshold))
+}
+
+/// The fit itself, from every (confidence, verdict) of one species and model: (threshold, estimated precision, reviews),
+/// or None below `MIN_REVIEWS` yes/no answers.
+pub fn fit(rows: &[(f64, Option<String>)], target: f64) -> Option<(f64, Option<f64>, i64)> {
     let mut count = [0f64; 9];
     let mut yes = [0f64; 9];
     let mut no = [0f64; 9];
-    let mut st = p.db.prepare("SELECT d.confidence, r.verdict FROM detections d LEFT JOIN reviews r ON r.detection_id = d.id WHERE d.species = ?1 AND d.model = ?2 AND d.in_range = 1")?;
-    let mut rows = st.query(params![species, model])?;
-    while let Some(r) = rows.next()? {
-        let (c, v): (f64, Option<String>) = (r.get(0)?, r.get(1)?);
-        let b = band(c);
+    for (c, v) in rows {
+        let b = band(*c);
         count[b] += 1.0;
         match v.as_deref() { Some("yes") => yes[b] += 1.0, Some("no") => no[b] += 1.0, _ => {} }
     }
     let reviewed: f64 = yes.iter().sum::<f64>() + no.iter().sum::<f64>();
-    if (reviewed as i64) < MIN_REVIEWS {
-        p.db.execute("DELETE FROM thresholds WHERE species = ?1 AND model = ?2 AND source = 'fitted'", params![species, model])?;
-        return Ok(None);
-    }
+    if (reviewed as i64) < MIN_REVIEWS { return None; }
     let mut prec = [None; 9];
     for b in 0..9 { if yes[b] + no[b] > 0.0 { prec[b] = Some(yes[b] / (yes[b] + no[b])); } }
     for b in (0..9).rev() { if prec[b].is_none() { prec[b] = prec[b + 1..].iter().flatten().next().copied(); } }
@@ -105,10 +119,7 @@ pub fn fit_threshold(p: &Project, species: i64, model: &str, target: f64) -> Res
         let (w, s) = (t..9).fold((0.0, 0.0), |(w, s), b| (w + count[b], s + count[b] * prec[b].unwrap_or(0.0)));
         if w > 0.0 && s / w >= target { chosen = (BANDS[t], Some(s / w)); break; }
     }
-    p.db.execute("INSERT INTO thresholds (species, model, threshold, precision, reviewed, source) VALUES (?1, ?2, ?3, ?4, ?5, 'fitted')
-        ON CONFLICT (species, model) DO UPDATE SET threshold = excluded.threshold, precision = excluded.precision, reviewed = excluded.reviewed, source = 'fitted'",
-        params![species, model, chosen.0, chosen.1, reviewed as i64])?;
-    Ok(Some(chosen.0))
+    Some((chosen.0, chosen.1, reviewed as i64))
 }
 
 #[derive(Debug, Serialize)]

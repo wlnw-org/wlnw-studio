@@ -35,6 +35,15 @@ pub fn publish(p: &Project, dataset: &str, key: &str, submit: bool, mut on_progr
             "name": d.scientific, "confidence": d.confidence, "count": 1,
             "file": std::path::Path::new(&d.path).file_name().map(|n| n.to_string_lossy().to_string()) }))
     }).collect();
+    // Camera-trap sightings: one row per image and taxon with the number of boxes; never images with people, never vehicles.
+    let images = crate::images::accepted(p)?;
+    let mut rows = rows;
+    rows.extend(crate::images::per_image(&images).into_iter().filter_map(|(o, count)| {
+        let (t, lat, lon) = (o.utc?, o.lat?, o.lon?);
+        Some(serde_json::json!({ "site": o.site, "lat": lat, "lon": lon, "ts": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "name": o.scientific, "confidence": o.score, "count": count,
+            "file": std::path::Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()) }))
+    }));
     let mut rep = PublishReport { sent: rows.len(), ..Default::default() };
     for (i, part) in rows.chunks(CHUNK).enumerate() {
         let v = post(dataset, key, serde_json::json!({ "action": "records", "rows": part }))?;

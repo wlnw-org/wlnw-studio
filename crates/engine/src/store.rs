@@ -19,6 +19,10 @@ pub struct Deployment {
     pub tz_offset_min: i32,
     pub tz_known: bool,
     pub files: i64, pub done: i64, pub hours: f64,
+    /// Camera traps: images found, and the country (ISO 3166-1 alpha-3) and US state SpeciesNet's geofencing uses.
+    #[serde(default)] pub images: i64,
+    #[serde(default)] pub country: Option<String>,
+    #[serde(default)] pub admin1: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,8 +88,9 @@ impl Project {
             && !db.query_row("SELECT EXISTS (SELECT 1 FROM pragma_table_info('detections') WHERE name = 'model')", [], |r| r.get::<_, bool>(0))?;
         if old { bail!("This project was made by an earlier test version of Studio. Please create a new project and add the recordings again."); }
         db.execute_batch(SCHEMA)?;
+        db.execute_batch(crate::images::SCHEMA)?;
         // Columns added after schema 2, appended to projects made before them (nullable, so old rows simply have none).
-        for (table, col, ty) in [("detections", "detection_score", "REAL"), ("files", "sample_rate", "INTEGER")] {
+        for (table, col, ty) in [("detections", "detection_score", "REAL"), ("files", "sample_rate", "INTEGER"), ("deployments", "country", "TEXT"), ("deployments", "admin1", "TEXT")] {
             let has: bool = db.query_row(&format!("SELECT EXISTS (SELECT 1 FROM pragma_table_info('{table}') WHERE name = '{col}')"), [], |r| r.get(0))?;
             if !has { db.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {ty}"))?; }
         }
@@ -109,11 +114,13 @@ impl Project {
     pub fn deployments(&self) -> Result<Vec<Deployment>> {
         let mut st = self.db.prepare(
             "SELECT d.id, d.name, d.folder, d.serial, d.model, d.lat, d.lon, d.tz_offset_min, d.tz_known,
-                    COUNT(f.id), COUNT(f.id) FILTER (WHERE f.duration_s IS NOT NULL), COALESCE(SUM(f.duration_s), 0) / 3600.0
+                    COUNT(f.id), COUNT(f.id) FILTER (WHERE f.duration_s IS NOT NULL), COALESCE(SUM(f.duration_s), 0) / 3600.0,
+                    (SELECT COUNT(*) FROM images i WHERE i.deployment_id = d.id), d.country, d.admin1
              FROM deployments d LEFT JOIN files f ON f.deployment_id = d.id GROUP BY d.id ORDER BY d.name")?;
         let rows = st.query_map([], |r| Ok(Deployment {
             id: r.get(0)?, name: r.get(1)?, folder: r.get(2)?, serial: r.get(3)?, model: r.get(4)?, lat: r.get(5)?, lon: r.get(6)?,
             tz_offset_min: r.get(7)?, tz_known: r.get::<_, i64>(8)? == 1, files: r.get(9)?, done: r.get(10)?, hours: r.get(11)?,
+            images: r.get(12)?, country: r.get(13)?, admin1: r.get(14)?,
         }))?;
         Ok(rows.collect::<Result<_, _>>()?)
     }

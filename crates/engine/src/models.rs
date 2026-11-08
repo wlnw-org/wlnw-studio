@@ -50,6 +50,8 @@ pub trait Classifier: Send + Sync {
     fn expected(&self, _lat: f64, _lon: f64, _week: i32) -> Result<Option<Vec<f32>>> { Ok(None) }
     /// Detections below this are not stored (they would only fill the project).
     fn floor(&self) -> f32 { 0.1 }
+    /// Image models (camera traps) return themselves here; they do not read sound.
+    fn images(&self) -> Option<&crate::camtrap::SpeciesNet> { None }
 }
 
 /// Every pack found in `dir`. A pack that fails to load is reported, not fatal.
@@ -68,6 +70,9 @@ pub fn available_in(dirs: &[std::path::PathBuf]) -> (Vec<Arc<dyn Classifier>>, V
     }
     if let Some(d) = dirs.iter().map(|d| d.join("batdetect2")).find(|d| d.join("batdetect2_uk.onnx").exists()) {
         match crate::batdetect::BatDetect::load(&d) { Ok(m) => ok.push(Arc::new(m)), Err(e) => errors.push(format!("BatDetect2: {e:#}")) }
+    }
+    if let Some(d) = dirs.iter().map(|d| d.join(crate::camtrap::DIR)).find(|d| crate::camtrap::FILES.iter().all(|f| d.join(f).exists())) {
+        match crate::camtrap::SpeciesNet::load(&d) { Ok(m) => ok.push(Arc::new(m)), Err(e) => errors.push(format!("SpeciesNet: {e:#}")) }
     }
     (ok, errors)
 }

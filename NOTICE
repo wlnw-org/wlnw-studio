@@ -18,4 +18,16 @@ their own licences. They are not stored in this repository; Studio downloads the
   Cite: Mac Aodha et al. (2022), Towards a General Approach for Bat Echolocation Detection and Classification,
   bioRxiv, doi:10.1101/2022.12.14.520490.
 
+- SpeciesNet v4.0.3a ("always crop" classifier, taxonomy and geofence files), by Google (github.com/google/cameratrapai,
+  kaggle.com/models/google/speciesnet). Apache License 2.0. Not distributed with Studio; users make the ONNX file with
+  spike/speciesnet_export.py and add it. Studio's ensemble rules and geofencing (crates/engine/src/camtrap.rs) reproduce
+  the speciesnet package's. Cite: Gadot et al. (2024), To crop or not to crop: Comparing whole-image and cropped
+  classification on a large dataset of camera trap images, IET Computer Vision, doi:10.1049/cvi2.12318.
+- MegaDetector v6 MIT (MDV6-mit-yolov9-c), by Microsoft AI for Good Lab (Pytorch-Wildlife, github.com/microsoft/CameraTraps,
+  MIT code), trained with the MIT-licensed YOLO code of MultimediaTechLab; weights from Zenodo record 15398270, CC BY 4.0.
+  Not distributed with Studio (made into ONNX by spike/speciesnet_export.py). Cite: Hernandez et al. (2024),
+  Pytorch-Wildlife: A Collaborative Deep Learning Framework for Conservation, arXiv:2405.12930.
+- JPEG decoding uses mozjpeg (libjpeg-turbo's decoder). This software is based in part on the work of the Independent
+  JPEG Group. libjpeg-turbo is under the IJG licence, the Modified (3-clause) BSD Licence and the zlib Licence.
+
 Map tiles in the place picker: OpenFreeMap, with data from OpenStreetMap contributors.

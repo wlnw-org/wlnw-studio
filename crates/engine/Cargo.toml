@@ -16,6 +16,10 @@ chrono = { version = "0.4.45", features = ["serde"] }
 fs4 = "1.1.0"
 half = "2.7.1"
 hex = "0.4.3"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
+kamadak-exif = "0.6.2"
+mozjpeg = { version = "0.10.13", default-features = false }
+mozjpeg-sys = { version = "2.2", default-features = false, features = ["unwinding"] }
 ort = { version = "2.0.0-rc.15", default-features = false, features = ["std", "download-binaries", "tls-native"] }
 rayon = "1.12.0"
 realfft = "3.5.1"

@@ -3,14 +3,17 @@
 //!   wlnw download <pack id> [models dir]           download a model pack (perch-2.0)
 //!   wlnw scan <project.wlnw> <folder>
 //!   wlnw place <project.wlnw> <deployment id> <lat> <lon> <utc offset hours>
+//!   wlnw country <project.wlnw> <deployment id> <ISO 3166 alpha-3> [US state]   camera traps: SpeciesNet geofencing
 //!   wlnw use <project.wlnw> [model ids...]          models to run (none = regional default)
-//!   wlnw run <project.wlnw> [models dir]
+//!   wlnw run <project.wlnw> [models dir]             recordings with the sound models, images with SpeciesNet
 //!   wlnw status <project.wlnw> [models dir]
 //!   wlnw files <project.wlnw> [done|partial|todo|failed|none] [models dir]
 //!   wlnw retry <project.wlnw>                       try failed recordings again on the next run
 //!   wlnw history <project.wlnw>
 //!   wlnw species <project.wlnw>
 //!   wlnw verdict <project.wlnw> <detection id> yes|no|unsure
+//!   wlnw images <project.wlnw>                      camera-trap images: counts and species
+//!   wlnw image-verdict <project.wlnw> <box id> yes|no|unsure
 //!   wlnw example <project.wlnw> <detection id> <scientific name> [absent]
 //!   wlnw similar <project.wlnw> <detection id> [n]
 //!   wlnw train <project.wlnw>                       train the Wildlife Network Classifier
@@ -20,12 +23,12 @@
 //!   wlnw answers-load <project.wlnw> <file.wlnr> [label]        another reviewer's answers
 //!   wlnw agreement <project.wlnw> [reviewer]         agreement per species and disagreements
 //!   wlnw settle <project.wlnw> <reviewer> <detection id> yes|no|unsure
-//!   wlnw export <project.wlnw> csv|wdx|dwca|raven|kaleidoscope <out>
+//!   wlnw export <project.wlnw> csv|wdx|dwca|raven|kaleidoscope|camtrapdp <out>
 //!   wlnw publish <project.wlnw> <dataset id> [--submit]   (key in WLNW_UPLOAD_KEY)
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use wlnw_engine::{agreement, export, import, files, history, models, publish, review, run, scan, store::Project, wnc};
+use wlnw_engine::{agreement, export, import, files, history, images, models, publish, review, run, scan, store::Project, wnc};
 
 fn models_dir(dir: Option<&String>) -> PathBuf {
     dir.map(PathBuf::from).or_else(|| std::env::var("WLNW_MODELS").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("models"))
@@ -38,7 +41,8 @@ fn main() -> Result<()> {
     match cmd {
         "models" => {
             let (ms, errs) = models::available(&models_dir(a.get(2)));
-            for m in &ms { let i = m.info(); println!("{:<12} {} {}  {} labels, {} kHz, {} s windows, licence {}", i.id, i.name, i.version, m.labels().len(), i.sample_rate / 1000, i.window as f64 / i.sample_rate as f64, i.licence); }
+            for m in ms.iter().filter(|m| m.images().is_some()) { let i = m.info(); println!("{:<12} {} {}  {} labels, camera-trap images, licence {}", i.id, i.name, i.version, m.labels().len(), i.licence); }
+            for m in ms.iter().filter(|m| m.images().is_none()) { let i = m.info(); println!("{:<12} {} {}  {} labels, {} kHz, {} s windows, licence {}", i.id, i.name, i.version, m.labels().len(), i.sample_rate / 1000, i.window as f64 / i.sample_rate as f64, i.licence); }
             for e in errs { eprintln!("could not load {e}"); }
         }
         "download" => {
@@ -53,7 +57,7 @@ fn main() -> Result<()> {
             let folder = a.get(3).context("folder?")?;
             let t = history::now(&p);
             let r = scan::scan(&p, Path::new(folder));
-            history::log(&p, "scan", &t, &r, |x| format!("Added {} new of {} recordings found in {folder} (command line)", history::n(x.added as i64), history::n(x.found as i64)), "Adding a folder failed");
+            history::log(&p, "scan", &t, &r, |x| format!("{} (command line)", scan::summary(x, folder)), "Adding a folder failed");
             println!("{}", serde_json::to_string_pretty(&r?)?);
         }
         "place" => {
@@ -62,13 +66,25 @@ fn main() -> Result<()> {
             let d = p.deployments()?.into_iter().find(|d| d.id == id).context("no such deployment")?;
             p.update_deployment(id, &d.name, Some(a[4].parse()?), Some(a[5].parse()?), (a[6].parse::<f64>()? * 60.0) as i32)?;
         }
+        "country" => {
+            let p = proj()?;
+            let again = images::set_country(&p, a.get(3).context("deployment id?")?.parse()?, a.get(4).map(String::as_str), a.get(5).map(String::as_str))?;
+            if again { eprintln!("its images will run through SpeciesNet again on the next run"); }
+        }
+        "images" => {
+            let p = proj()?;
+            let c = images::counts(&p, wlnw_engine::camtrap::ID)?;
+            println!("{} images: {} processed, {} failed; {} with animals, {} with people, {} with vehicles, {} empty", c.total, c.done, c.failed, c.animals, c.people, c.vehicles, c.empty);
+            for s in images::species(&p)? { println!("{:>6} boxes {:>6} images {:>6} kept  t={:.2} ({})  {} / {}", s.boxes, s.images, s.kept, s.threshold, s.threshold_source, s.common, s.scientific); }
+        }
+        "image-verdict" => images::set_verdict(&proj()?, a[3].parse()?, Some(a[4].as_str()))?,
         "use" => proj()?.set_setting("models", &serde_json::to_string(&a[3..].to_vec())?)?,
         "status" => {
             let p = proj()?;
             let (ms, _) = models::available(&models_dir(a.get(3)));
             let have: Vec<String> = ms.iter().map(|m| m.info().id.clone()).collect();
             let plan = run::plan(&p, &have)?;
-            println!("{}", serde_json::to_string_pretty(&run::progress(&p, &plan)?)?);
+            println!("{}", serde_json::to_string_pretty(&run::progress_all(&p, &plan, &have)?)?);
             let emb: Vec<String> = ms.iter().filter(|m| m.info().embeds).map(|m| m.info().id.clone()).collect();
             let sp = run::space(&p, &plan, &emb)?;
             let size = |b: u64| if b >= 1_000_000_000 { format!("{:.1} GB", b as f64 / 1e9) } else { format!("{} MB", (b as f64 / 1e6).round()) };
@@ -81,7 +97,8 @@ fn main() -> Result<()> {
             let (ms, errs) = models::available(&models_dir(a.get(3)));
             for e in errs { eprintln!("could not load {e}"); }
             let stop = AtomicBool::new(false);
-            let r = run::run(&p, &ms, &stop, |pr| eprintln!("{}/{} jobs, {} detections{}", pr.jobs_done, pr.jobs_total, pr.detections,
+            let r = run::run(&p, &ms, &stop, |pr| eprintln!("{}/{} jobs, {} detections{}{}", pr.jobs_done, pr.jobs_total, pr.detections,
+                if pr.images_total > 0 { format!(", {}/{} images", pr.images_done, pr.images_total) } else { String::new() },
                 pr.current.as_deref().map(|c| format!(", now {} on {c}", pr.current_model.as_deref().unwrap_or(""))).unwrap_or_default()))?;
             println!("{}", serde_json::to_string_pretty(&r)?);
         }
@@ -135,7 +152,9 @@ fn main() -> Result<()> {
                 Some("dwca") => (export::dwca(&p, out), "a Darwin Core Archive"),
                 Some("raven") => (export::raven_audacity(&p, out), "Raven and Audacity tables"),
                 Some("kaleidoscope") => (export::kaleidoscope(&p, out), "a Kaleidoscope id.csv"),
-                _ => bail!("format: csv, wdx, dwca, raven or kaleidoscope"),
+                Some("camtrapdp") => (images::camtrapdp(&p, out).map(|r| { eprintln!("{} deployments, {} images, {} observations; left out: {} images with people, {} without a time or place",
+                    r.deployments, r.media, r.observations, r.left_out_people, r.left_out_no_time_or_place); r.observations }), "a Camtrap DP package"),
+                _ => bail!("format: csv, wdx, dwca, raven, kaleidoscope or camtrapdp"),
             };
             history::log(&p, "export", &t, &r, |k| format!("Exported {} detections as {name} to {} (command line)", history::n(*k as i64), out.display()), "Export failed");
             let n = r?;

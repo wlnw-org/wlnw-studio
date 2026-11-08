@@ -56,6 +56,14 @@ pub const CATALOG: &[Pack] = &[
         downloadable: false,
         note: "Not downloadable yet: BatDetect2 is for non-commercial use only and no converted copy is published. Make the three files with spike/batdetect2_export.py (see docs/SPIKE.md), then add them from a folder.",
     },
+    Pack {
+        id: "speciesnet-4.0.3a", name: "SpeciesNet (camera traps)",
+        description: "Google's camera-trap model with Microsoft's MegaDetector v6: finds animals, people and vehicles in photos and names about 2,000 species and groups, checked against the camera's country.",
+        licence: "Apache-2.0", licence_url: "https://www.apache.org/licenses/LICENSE-2.0", dir: "speciesnet",
+        files: &[],
+        downloadable: false,
+        note: "Not downloadable yet: the converted files are not published anywhere. Both models may be shared (SpeciesNet Apache 2.0, MegaDetector v6 MIT weights CC BY 4.0). Make the six files with spike/speciesnet_export.py (see docs/SPIKE.md), then add them from a folder.",
+    },
 ];
 
 /// Files that must be present for a pack to count as installed (BirdNET and BatDetect2 have no download list yet, so their files are named here).
@@ -63,6 +71,7 @@ pub fn required(pack: &Pack) -> Vec<&'static str> {
     match pack.id {
         "birdnet-2.4" => vec!["birdnet_v24_cnn.onnx", "birdnet_v24_meta.onnx", "w1.f32", "w2.f32", "M1.f32", "M2.f32", "mel.json", "labels.txt"],
         "batdetect2-uk" => vec!["batdetect2_uk.onnx", "batdetect2.json", "labels.txt"],
+        "speciesnet-4.0.3a" => crate::camtrap::FILES.to_vec(),
         _ => pack.files.iter().map(|f| f.name).collect(),
     }
 }
@@ -150,8 +159,13 @@ pub fn add_from_folder(src: &Path, models_dir: &Path) -> Result<Vec<&'static str
     let mut copied = 0;
     for pack in CATALOG {
         let dest = models_dir.join(pack.dir);
-        for name in required(pack) {
-            for cand in [src.join(name), src.join(pack.dir).join(name)] {
+        let names = required(pack);
+        // Files straight in `src` belong to this pack only when its first file (the model) is there too: several packs
+        // have a labels.txt.
+        let direct = names.first().is_some_and(|f| src.join(f).exists());
+        for name in names {
+            let cands = if direct { vec![src.join(name), src.join(pack.dir).join(name)] } else if pack.dir.is_empty() { vec![] } else { vec![src.join(pack.dir).join(name)] };
+            for cand in cands {
                 if cand.exists() && !dest.join(name).exists() {
                     std::fs::create_dir_all(&dest)?;
                     std::fs::copy(&cand, dest.join(name))?;

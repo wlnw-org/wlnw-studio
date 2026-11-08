@@ -106,7 +106,32 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
         if d.lat.is_none() { continue; }
         writeln!(f, "{ev}")?;
     }
-    Ok(rows.len())
+    // Camera-trap boxes: one event per box (WDX allows one region per event); never people or vehicles.
+    let obs = crate::images::accepted(p)?;
+    let mut n_img = 0;
+    for o in &obs {
+        let (Some(t), Some(lat), Some(lon)) = (o.utc, o.lat, o.lon) else { continue };
+        let (name, ver) = crate::images::model_label(&o.model);
+        let rank = if o.rank == "kingdom" { "unranked" } else { o.rank.as_str() };
+        let ev = serde_json::json!({
+            "wdx": "0.4", "eventId": format!("wlnw-studio:{}:img{}", ds, o.box_id),
+            "eventStart": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(), "eventEnd": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "deployment": { "deploymentId": format!("{}:{}", ds, o.deployment_id), "name": o.site, "latitude": lat, "longitude": lon, "sensorType": "camera-trap" },
+            "detection": { "scientificName": o.scientific, "vernacularName": o.common, "taxonRank": rank, "individualCount": 1,
+                "confidence": (o.score * 10000.0).round() / 10000.0, "classifier": { "name": name, "version": ver },
+                "pipeline": [{ "role": "detector", "name": "MegaDetector", "version": "6 MIT YOLOv9" }, { "role": "classifier", "name": name, "version": ver }] },
+            "media": { "mediaType": "image", "fileName": Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()),
+                "region": { "type": "box", "units": "normalized", "coordinates": o.bbox.iter().map(|v| (v * 10000.0).round() / 10000.0).collect::<Vec<_>>(),
+                    "imageWidth": o.width, "imageHeight": o.height } },
+            "review": { "status": if o.verdict.as_deref() == Some("yes") { "confirmed" } else { "unreviewed" } },
+            "source": { "system": "wlnw-studio", "systemVersion": env!("CARGO_PKG_VERSION"), "sourceRecordId": format!("img{}", o.box_id) },
+            "license": i.license,
+            "dataset": { "datasetId": ds, "title": i.title, "rightsHolder": i.institution, "recordedBy": i.people },
+        });
+        writeln!(f, "{ev}")?;
+        n_img += 1;
+    }
+    Ok(rows.len() + n_img)
 }
 
 /// A Darwin Core Archive (occurrence core) ready for an IPT or GBIF: occurrence.txt, meta.xml and a minimal eml.xml.
@@ -117,6 +142,11 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
     let cols = ["occurrenceID", "basisOfRecord", "eventDate", "scientificName", "vernacularName", "decimalLatitude", "decimalLongitude",
         "coordinateUncertaintyInMeters", "locationID", "recordedBy", "institutionCode", "datasetName", "license", "identifiedBy",
         "identificationVerificationStatus", "identificationRemarks", "associatedMedia", "occurrenceStatus"];
+    let images = crate::images::accepted(p)?;
+    let has_images = !images.is_empty();
+    // Taxon rank and counts only matter for camera-trap rows (sound rows stay as they were when there are none).
+    let mut cols = cols.to_vec();
+    if has_images { cols.extend(["taxonRank", "individualCount"]); }
     let mut occ = String::new();
     occ.push_str(&cols.join("\t"));
     occ.push('\n');
@@ -128,6 +158,22 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
             format!("{}{}", model_name(&d.model), if d.verdict.as_deref() == Some("yes") { " | confirmed by reviewer" } else { "" }), status(d).into(),
             format!("confidence {:.4}; clip {:.1} to {:.1} s", d.confidence, d.start_s, d.end_s),
             Path::new(&d.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "present".into()];
+        let mut line = line.to_vec();
+        if has_images { line.extend(["species".to_string(), String::new()]); }
+        occ.push_str(&line.iter().map(|v| tsv(v)).collect::<Vec<_>>().join("\t"));
+        occ.push('\n');
+        n += 1;
+    }
+    // Camera-trap sightings: one occurrence per image and taxon, with how many boxes; never people or vehicles.
+    for (o, count) in crate::images::per_image(&images) {
+        let (Some(t), Some(lat), Some(lon)) = (o.utc, o.lat, o.lon) else { continue };
+        let (name, ver) = crate::images::model_label(&o.model);
+        let line = [format!("{ds}:img{}:{}", o.image_id, o.species), "MachineObservation".into(), t.format("%Y-%m-%dT%H:%M:%SZ").to_string(), o.scientific.clone(), o.common.clone(),
+            format!("{lat:.5}"), format!("{lon:.5}"), "100".into(), o.site.clone(), i.people.join(" | "), i.institution.clone().unwrap_or_default(), i.title.clone(), license_url(&i.license).into(),
+            format!("{name} {ver} with MegaDetector v6{}", if o.verdict.as_deref() == Some("yes") { " | confirmed by reviewer" } else { "" }),
+            if o.verdict.as_deref() == Some("yes") { "verified by expert" } else { "unverified" }.into(),
+            format!("camera trap image; score {:.4}", o.score), Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "present".into(),
+            o.rank.clone(), count.to_string()];
         occ.push_str(&line.iter().map(|v| tsv(v)).collect::<Vec<_>>().join("\t"));
         occ.push('\n');
         n += 1;
@@ -137,7 +183,7 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
     let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
     let creators: String = i.people.iter().map(|p| format!("    <creator><individualName><surName>{}</surName></individualName></creator>\n", esc(p))).collect();
     let eml = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<eml:eml xmlns:eml=\"https://eml.ecoinformatics.org/eml-2.2.0\" packageId=\"{}\" system=\"wlnw-studio\">\n  <dataset>\n    <title>{}</title>\n{creators}{}    <abstract><para>{}</para></abstract>\n    <intellectualRights><para>{}</para></intellectualRights>\n    <methods><methodStep><description><para>Automatic identification in Wildlife Network Studio {} ({}); per-species thresholds fitted from expert review where reviewed.</para></description></methodStep></methods>\n  </dataset>\n</eml:eml>\n",
-        esc(&ds), esc(&i.title), i.institution.as_ref().map(|x| format!("    <organization>{}</organization>\n", esc(x))).unwrap_or_default(), esc(i.description.as_deref().unwrap_or("")), license_url(&i.license), env!("CARGO_PKG_VERSION"), { let mut m: Vec<String> = rows.iter().map(|d| model_name(&d.model)).collect(); m.sort(); m.dedup(); m.join(", ") });
+        esc(&ds), esc(&i.title), i.institution.as_ref().map(|x| format!("    <organization>{}</organization>\n", esc(x))).unwrap_or_default(), esc(i.description.as_deref().unwrap_or("")), license_url(&i.license), env!("CARGO_PKG_VERSION"), { let mut m: Vec<String> = rows.iter().map(|d| model_name(&d.model)).collect(); if has_images { m.push("SpeciesNet 4.0.3a with MegaDetector v6 MIT".into()); } m.sort(); m.dedup(); m.join(", ") });
     let mut z = zip::ZipWriter::new(std::fs::File::create(out)?);
     let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
     for (name, body) in [("occurrence.txt", occ), ("meta.xml", meta), ("eml.xml", eml)] {

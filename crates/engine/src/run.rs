@@ -24,11 +24,18 @@ pub struct Progress {
     pub jobs_done: i64, pub jobs_total: i64,
     pub files_done: i64, pub files_total: i64, pub hours_done: f64, pub bytes_done: i64, pub bytes_total: i64,
     pub detections: i64, pub speed_x: f64, pub eta_s: Option<f64>, pub current: Option<String>, pub current_model: Option<String>, pub errors: i64,
+    /// Camera-trap images: done and found (for the installed image model), and the speed of this run.
+    #[serde(default)] pub images_done: i64,
+    #[serde(default)] pub images_total: i64,
+    #[serde(default)] pub images_per_s: f64,
 }
 
 /// Model ids to run for each deployment: the project's choice, or the default for its region and sample rate.
 /// Either way BatDetect2 only runs on bat recorders (192 kHz and above); bird models run wherever they are chosen.
 pub fn plan(p: &Project, have: &[String]) -> Result<HashMap<i64, Vec<String>>> {
+    // Image models never run on sound (images.rs runs them on the images).
+    let have: Vec<String> = have.iter().filter(|m| m.as_str() != crate::camtrap::ID).cloned().collect();
+    let have = &have[..];
     let chosen: Vec<String> = p.chosen_models().into_iter().filter(|m| have.contains(m)).collect();
     let bats = have.iter().any(|h| h == crate::batdetect::ID);
     Ok(p.deployments()?.into_iter().map(|d| {
@@ -71,6 +78,18 @@ pub fn progress(p: &Project, plan: &HashMap<i64, Vec<String>>) -> Result<Progres
         if !models.is_empty() && n_done == models.len() as i64 { pr.files_done += 1; pr.hours_done += dur.unwrap_or(0.0) / 3600.0; }
     }
     pr.detections = p.db.query_row("SELECT COUNT(*) FROM detections", [], |r| r.get(0))?;
+    Ok(pr)
+}
+
+/// Progress including camera-trap images, when an image model is installed (`have`).
+pub fn progress_all(p: &Project, plan: &HashMap<i64, Vec<String>>, have: &[String]) -> Result<Progress> {
+    let mut pr = progress(p, plan)?;
+    if have.iter().any(|m| m == crate::camtrap::ID) {
+        pr.images_total = p.db.query_row("SELECT COUNT(*) FROM images", [], |r| r.get(0))?;
+        pr.images_done = pr.images_total - crate::images::todo(p, crate::camtrap::ID)?;
+        pr.jobs_total += pr.images_total;
+        pr.jobs_done += pr.images_done;
+    }
     Ok(pr)
 }
 
@@ -119,7 +138,7 @@ pub fn space(p: &Project, plan: &HashMap<i64, Vec<String>>, embedding_models: &[
 
 /// What one run did, for the project history.
 #[derive(Default)]
-struct RunStats { files: HashMap<i64, f64>, failed: std::collections::HashSet<i64> }
+struct RunStats { files: HashMap<i64, f64>, failed: std::collections::HashSet<i64>, images: crate::images::RunStats }
 
 /// Runs every (recording, model) pair still to do. `on_progress` is called before each pair; set `stop` to finish the current pair and return.
 /// Each run is written to the project history with what it did.
@@ -130,6 +149,8 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, on_pr
     used.sort();
     used.dedup();
     let names = used.iter().map(|id| models.iter().find(|m| &m.info().id == id).map(|m| m.info().name.clone()).unwrap_or_else(|| id.clone())).collect::<Vec<_>>().join(" + ");
+    let image_names: Vec<String> = crate::images::image_models(models).iter().filter(|m| crate::images::todo(p, &m.info().id).unwrap_or(0) > 0).map(|m| m.info().name.clone()).collect();
+    let names = [names, image_names.join(" + ")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" + ");
     let names = if names.is_empty() { "No model".to_string() } else { names };
     let count = || -> i64 { p.db.query_row("SELECT COUNT(*) FROM detections", [], |r| r.get(0)).unwrap_or(0) };
     let before = count();
@@ -140,13 +161,16 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, on_pr
     let audio: f64 = st.files.values().sum::<f64>().max(0.0);
     let added = count() - before;
     let wall = started.elapsed().as_secs_f64();
-    let mut parts = if st.files.is_empty() { vec!["no recording read".to_string()] } else {
+    let mut parts = if st.files.is_empty() { if st.images.images + st.images.failed == 0 { vec!["no recording read".to_string()] } else { vec![] } } else {
         vec![format!("{} {} ({} of audio)", history::n(st.files.len() as i64), if st.files.len() == 1 { "recording" } else { "recordings" }, history::hours(audio)),
             format!("{} new detections", history::n(added))]
     };
+    if st.images.images > 0 { parts.push(format!("{} {} ({} boxes)", history::n(st.images.images), if st.images.images == 1 { "image" } else { "images" }, history::n(st.images.boxes))); }
+    if st.images.failed > 0 { parts.push(format!("{} images could not be read", history::n(st.images.failed))); }
     if !st.failed.is_empty() { parts.push(format!("{} could not be read", history::n(st.failed.len() as i64))); }
     let (status, tail) = match &r {
-        Ok(pr) if pr.jobs_done >= pr.jobs_total => ("finished", if st.failed.is_empty() { "Every recording is done." } else { "Every recording has been tried." }.to_string()),
+        Ok(pr) if pr.jobs_done >= pr.jobs_total => ("finished", match (pr.files_total > 0, st.failed.is_empty() && st.images.failed == 0) {
+            (true, true) => "Every recording is done.", (true, false) => "Every recording has been tried.", (false, true) => "Every image is done.", (false, false) => "Every image has been tried." }.to_string()),
         Ok(pr) => ("paused", format!("Paused with {} left.", history::n(pr.files_total - pr.files_done))),
         Err(e) => ("failed", format!("Stopped by an error: {e:#}")),
     };
@@ -154,6 +178,8 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, on_pr
     history::end(p, hid, status, &summary, &serde_json::json!({
         "models": used, "recordings": st.files.len(), "failed": st.failed.len(), "audio_s": audio, "detections": added,
         "seconds": wall, "speed_x": if wall > 0.0 { audio / wall } else { 0.0 },
+        "images": st.images.images, "images_failed": st.images.failed, "boxes": st.images.boxes,
+        "images_per_s": if st.images.seconds > 0.0 { st.images.images as f64 / st.images.seconds } else { 0.0 },
     }))?;
     r
 }
@@ -162,7 +188,7 @@ fn run_inner(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut
     let have: Vec<String> = models.iter().map(|m| m.info().id.clone()).collect();
     let plan = plan(p, &have)?;
     let mut species: HashMap<String, Vec<i64>> = HashMap::new();
-    for m in models { species.insert(m.info().id.clone(), p.species_ids(m.labels())?); }
+    for m in models.iter().filter(|m| m.images().is_none()) { species.insert(m.info().id.clone(), p.species_ids(m.labels())?); }
     let todo: Vec<(i64, String, Option<String>, i64, i64, Option<f64>, Option<f64>)> = {
         let mut st = p.db.prepare("SELECT f.id, f.path, f.start_local, COALESCE(f.bytes, 0), f.deployment_id, d.lat, d.lon FROM files f
             JOIN deployments d ON d.id = f.deployment_id ORDER BY f.deployment_id, f.start_local, f.path")?;
@@ -184,7 +210,7 @@ fn run_inner(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut
                     anyhow::bail!("Less than 1 GB is free on the disk that holds the project, so processing stopped before the next file. Free some space or move the project to a bigger disk, then resume.");
                 }
             }
-            let mut prog = progress(p, &plan)?;
+            let mut prog = progress_all(p, &plan, &have)?;
             let wall = started.elapsed().as_secs_f64();
             if wall > 1.0 && audio_s > 0.0 { prog.speed_x = audio_s / wall; prog.eta_s = Some((prog.bytes_total - prog.bytes_done) as f64 * wall / bytes_run.max(1) as f64); }
             prog.current = Some(path.clone());
@@ -233,9 +259,31 @@ fn run_inner(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut
             bytes_run += bytes;
         }
     }
-    let mut prog = progress(p, &plan)?;
+    // Camera-trap images, after the recordings.
+    if !stop.load(Ordering::Relaxed) && !crate::images::image_models(models).is_empty() {
+        let audio_wall = started.elapsed().as_secs_f64().max(1e-3);
+        let img_started = Instant::now();
+        let base = progress_all(p, &plan, &have)?;
+        let mut last = Instant::now() - std::time::Duration::from_secs(1);
+        stats.images = crate::images::run(p, models, stop, |done, total, path| {
+            // At most a few updates a second: each one is a message to the app.
+            if done < total && last.elapsed().as_millis() < 250 { return; }
+            last = Instant::now();
+            let mut pr = base.clone();
+            pr.images_done = base.images_done + done;
+            pr.jobs_done = base.jobs_done + done;
+            let w = img_started.elapsed().as_secs_f64();
+            if w > 1.0 && done > 0 { pr.images_per_s = done as f64 / w; pr.eta_s = Some((total - done) as f64 / pr.images_per_s); }
+            pr.speed_x = audio_s / audio_wall;
+            pr.current = (!path.is_empty()).then(|| path.to_string());
+            pr.current_model = Some("SpeciesNet".into());
+            on_progress(&pr);
+        })?;
+    }
+    let mut prog = progress_all(p, &plan, &have)?;
     let wall = started.elapsed().as_secs_f64().max(1e-3);
     prog.speed_x = audio_s / wall;
+    if stats.images.seconds > 0.0 { prog.images_per_s = stats.images.images as f64 / stats.images.seconds; }
     prog.eta_s = Some(0.0);
     on_progress(&prog);
     Ok(prog)
