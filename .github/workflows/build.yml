@@ -123,6 +123,32 @@ jobs:
             https://github.com/AppImage/type2-runtime/releases/download/continuous/runtime-x86_64
           echo "LDAI_RUNTIME_FILE=$f" >> "$GITHUB_ENV"
 
+      # Tauri's NSIS download (github.com/.../releases/download/...) can stay at 504 for hours while the same asset still
+      # comes through the releases API, so NSIS is fetched that way, checked against the SHA-1 Tauri 2.12 pins, and laid out
+      # where Tauri looks (%LOCALAPPDATA%/tauri/NSIS). Tauri re-verifies NSIS.exe and the plugin itself.
+      - name: NSIS for the installer (Windows)
+        if: matrix.target == 'windows-x64'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          t="$LOCALAPPDATA/tauri"; mkdir -p "$t"
+          get() { # repo tag asset sha1 out
+            local id; id=$(gh api "repos/$1/releases/tags/$2" --jq ".assets[] | select(.name == \"$3\") | .id")
+            curl -fsSL --retry 8 --retry-all-errors --retry-delay 15 -H "Accept: application/octet-stream" -H "Authorization: Bearer $GH_TOKEN" \
+              -o "$5" "https://api.github.com/repos/$1/releases/assets/$id"
+            echo "$4  $5" | tr 'A-F' 'a-f' | sha1sum -c -
+          }
+          if [ ! -f "$t/NSIS/makensis.exe" ]; then
+            rm -rf "$t/NSIS" "$t/nsis-3.13"
+            get tauri-apps/binary-releases nsis-3.13 nsis-3.13.zip DB14F8AF2EA346B786C6AE19343F61AAF5E09B8E "$RUNNER_TEMP/nsis.zip"
+            unzip -q "$RUNNER_TEMP/nsis.zip" -d "$t" && mv "$t/nsis-3.13" "$t/NSIS"
+          fi
+          d="$t/NSIS/Plugins/x86-unicode/additional"; mkdir -p "$d"
+          [ -f "$d/nsis_tauri_utils.dll" ] || get tauri-apps/nsis-tauri-utils nsis_tauri_utils-v0.5.3 nsis_tauri_utils.dll 75197FEE3C6A814FE035788D1C34EAD39349B860 "$d/nsis_tauri_utils.dll"
+          ls "$t/NSIS"
+
       - name: Install app dependencies
         working-directory: app
         run: pnpm install --frozen-lockfile
