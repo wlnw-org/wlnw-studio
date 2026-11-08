@@ -33,10 +33,19 @@ pub struct Scored { pub scores: Vec<f32>, pub embedding: Option<Vec<f32>> }
 #[derive(Debug, Clone)]
 pub struct Label { pub scientific: String, pub common: String }
 
+/// One call found inside a window by a model that detects individual calls (BatDetect2). Times in seconds from the
+/// window start, as the model hears them (before any time expansion is undone).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Call { pub start: f64, pub end: f64, pub label: usize, pub confidence: f32, pub detection: f32, pub low_hz: f64, pub high_hz: f64 }
+
 pub trait Classifier: Send + Sync {
     fn info(&self) -> &ModelInfo;
     fn labels(&self) -> &[Label];
     fn predict(&self, windows: &[Vec<f32>]) -> Result<Vec<Scored>>;
+    /// True for models that return individual calls with their own start and end (`calls`) instead of one score per window.
+    fn finds_calls(&self) -> bool { false }
+    /// The calls in each window, for models where `finds_calls` is true.
+    fn calls(&self, _windows: &[Vec<f32>]) -> Result<Vec<Vec<Call>>> { anyhow::bail!("{} scores windows, it does not find calls", self.info().name) }
     /// Probability that each label occurs at this place in this BirdNET week (1 to 48); None when the model has no location model.
     fn expected(&self, _lat: f64, _lon: f64, _week: i32) -> Result<Option<Vec<f32>>> { Ok(None) }
     /// Detections below this are not stored (they would only fill the project).
@@ -57,6 +66,9 @@ pub fn available_in(dirs: &[std::path::PathBuf]) -> (Vec<Arc<dyn Classifier>>, V
         let common = ok.first().map(|b| b.labels().to_vec()).unwrap_or_default();
         match crate::perch::Perch::load(&d, &common) { Ok(m) => ok.push(Arc::new(m)), Err(e) => errors.push(format!("Perch: {e:#}")) }
     }
+    if let Some(d) = dirs.iter().map(|d| d.join("batdetect2")).find(|d| d.join("batdetect2_uk.onnx").exists()) {
+        match crate::batdetect::BatDetect::load(&d) { Ok(m) => ok.push(Arc::new(m)), Err(e) => errors.push(format!("BatDetect2: {e:#}")) }
+    }
     (ok, errors)
 }
 
@@ -69,9 +81,11 @@ pub fn perch_first(lat: f64, lon: f64) -> bool {
     africa || south_asia
 }
 
-/// The models to run for a recorder: Perch first in Africa and South Asia (BirdNET too, as a second opinion), BirdNET elsewhere.
-pub fn default_models(lat: Option<f64>, lon: Option<f64>, have: &[String]) -> Vec<String> {
+/// The models to run for a recorder: BatDetect2 for ultrasonic recordings (`rate`, after time expansion, at or above
+/// 192 kHz) when it is installed; otherwise Perch first in Africa and South Asia (BirdNET too, as a second opinion), BirdNET elsewhere.
+pub fn default_models(lat: Option<f64>, lon: Option<f64>, rate: Option<u32>, have: &[String]) -> Vec<String> {
     let has = |id: &str| have.iter().any(|h| h == id);
+    if rate.is_some_and(|r| r >= crate::batdetect::ULTRASONIC_RATE) && has(crate::batdetect::ID) { return vec![crate::batdetect::ID.to_string()]; }
     let mut out = Vec::new();
     match (lat, lon) {
         (Some(la), Some(lo)) if perch_first(la, lo) && has("perch-2.0") => { out.push("perch-2.0".to_string()); if has("birdnet-2.4") { out.push("birdnet-2.4".into()); } }
@@ -94,8 +108,14 @@ mod tests {
         assert!(!perch_first(24.7, 46.7));    // Riyadh
         assert!(perch_first(30.04, 31.24));   // Cairo
         let have = vec!["birdnet-2.4".to_string(), "perch-2.0".to_string()];
-        assert_eq!(default_models(Some(13.0), Some(80.0), &have), vec!["perch-2.0", "birdnet-2.4"]);
-        assert_eq!(default_models(Some(51.5), Some(-0.1), &have), vec!["birdnet-2.4"]);
-        assert_eq!(default_models(None, None, &have), vec!["birdnet-2.4"]);
+        assert_eq!(default_models(Some(13.0), Some(80.0), None, &have), vec!["perch-2.0", "birdnet-2.4"]);
+        assert_eq!(default_models(Some(51.5), Some(-0.1), Some(48_000), &have), vec!["birdnet-2.4"]);
+        assert_eq!(default_models(None, None, None, &have), vec!["birdnet-2.4"]);
+        // Ultrasonic recordings go to BatDetect2 when it is installed, to the bird models when not.
+        assert_eq!(default_models(Some(51.5), Some(-0.1), Some(256_000), &have), vec!["birdnet-2.4"]);
+        let have = vec!["birdnet-2.4".to_string(), "perch-2.0".to_string(), "batdetect2-uk".to_string()];
+        assert_eq!(default_models(Some(51.5), Some(-0.1), Some(256_000), &have), vec!["batdetect2-uk"]);
+        assert_eq!(default_models(Some(13.0), Some(80.0), Some(192_000), &have), vec!["batdetect2-uk"]);
+        assert_eq!(default_models(Some(51.5), Some(-0.1), Some(96_000), &have), vec!["birdnet-2.4"]);
     }
 }

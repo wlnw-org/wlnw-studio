@@ -26,10 +26,16 @@ pub struct Progress {
     pub detections: i64, pub speed_x: f64, pub eta_s: Option<f64>, pub current: Option<String>, pub current_model: Option<String>, pub errors: i64,
 }
 
-/// Model ids to run for each deployment: the project's choice, or the regional default.
+/// Model ids to run for each deployment: the project's choice, or the default for its region and sample rate.
 pub fn plan(p: &Project, have: &[String]) -> Result<HashMap<i64, Vec<String>>> {
     let chosen: Vec<String> = p.chosen_models().into_iter().filter(|m| have.contains(m)).collect();
-    Ok(p.deployments()?.into_iter().map(|d| (d.id, if chosen.is_empty() { default_models(d.lat, d.lon, have) } else { chosen.clone() })).collect())
+    // A recorder keeps one sample rate, so its first recording tells (only read when a bat model is installed).
+    let rate_of = |dep: i64| -> Option<u32> {
+        if !have.iter().any(|h| h == crate::batdetect::ID) { return None; }
+        let path: Option<String> = p.db.query_row("SELECT path FROM files WHERE deployment_id = ?1 ORDER BY id LIMIT 1", [dep], |r| r.get(0)).ok();
+        path.and_then(|f| audio::effective_rate(Path::new(&f)))
+    };
+    Ok(p.deployments()?.into_iter().map(|d| (d.id, if chosen.is_empty() { default_models(d.lat, d.lon, rate_of(d.id), have) } else { chosen.clone() })).collect())
 }
 
 pub fn progress(p: &Project, plan: &HashMap<i64, Vec<String>>) -> Result<Progress> {
@@ -231,6 +237,7 @@ pub struct FileResult {
 }
 
 pub fn process_file(path: &Path, model: &dyn Classifier) -> Result<FileResult> {
+    if model.finds_calls() { return process_calls(path, model); }
     let info = model.info();
     let rate = info.sample_rate as f64;
     let mut s = audio::open(path, info.sample_rate)?;
@@ -250,6 +257,38 @@ pub fn process_file(path: &Path, model: &dyn Classifier) -> Result<FileResult> {
         }
     }
     out.seconds = s.position as f64 / rate;
+    Ok(out)
+}
+
+/// Models that find individual calls (BatDetect2), the way their Python reference reads audio: clips cut at the
+/// recording's own rate, each resampled on its own (scipy's resample_poly), a last clip shorter than a window dropped.
+/// Time-expanded recordings (GUANO "TE") are heard at their real speed; times are stored in the file's own seconds.
+fn process_calls(path: &Path, model: &dyn Classifier) -> Result<FileResult> {
+    let info = model.info();
+    let te = crate::meta::read(path).time_expansion.unwrap_or(1.0);
+    let mut s = audio::open_native(path)?;
+    let real = (s.source_rate as f64 * te).round() as u32;
+    let clip_s = info.window as f64 / info.sample_rate as f64;
+    let native = (clip_s * real as f64).floor() as usize;
+    let rs = crate::batdetect::PolyResampler::new(real, info.sample_rate);
+    let mut out = FileResult { detections: vec![], windows: vec![], embeddings: vec![], seconds: 0.0 };
+    let floor = model.floor();
+    loop {
+        let mut batch = Vec::with_capacity(BATCH);
+        let mut starts = Vec::with_capacity(BATCH);
+        while batch.len() < BATCH {
+            match s.next_window(native, native)? {
+                Some((st, c)) => { let mut c = rs.apply(&c); c.resize(info.window, 0.0); starts.push(st); batch.push(c); }
+                None => break,
+            }
+        }
+        if batch.is_empty() { break; }
+        for (b, found) in model.calls(&batch)?.into_iter().enumerate() {
+            let st = starts[b] as f64 / real as f64;
+            for c in found { if c.confidence >= floor { out.detections.push(((st + c.start) * te, (st + c.end.max(c.start)) * te, c.label, c.confidence)); } }
+        }
+    }
+    out.seconds = (s.position + s.leftover()) as f64 / s.source_rate as f64;
     Ok(out)
 }
 

@@ -38,7 +38,7 @@ fn main() -> Result<()> {
     match cmd {
         "models" => {
             let (ms, errs) = models::available(&models_dir(a.get(2)));
-            for m in &ms { let i = m.info(); println!("{:<12} {} {}  {} labels, {} kHz, {:.0} s windows, licence {}", i.id, i.name, i.version, m.labels().len(), i.sample_rate / 1000, i.window as f64 / i.sample_rate as f64, i.licence); }
+            for m in &ms { let i = m.info(); println!("{:<12} {} {}  {} labels, {} kHz, {} s windows, licence {}", i.id, i.name, i.version, m.labels().len(), i.sample_rate / 1000, i.window as f64 / i.sample_rate as f64, i.licence); }
             for e in errs { eprintln!("could not load {e}"); }
         }
         "download" => {

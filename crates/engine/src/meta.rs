@@ -20,6 +20,9 @@ pub struct FileMeta {
     pub serial: Option<String>,
     /// Where the start time came from: "guano", "audiomoth", "filename".
     pub time_source: Option<String>,
+    /// Time expansion factor of a time-expanded bat recording (GUANO "TE"), when above 1.
+    #[serde(default)]
+    pub time_expansion: Option<f64>,
 }
 
 fn re(cell: &'static OnceLock<Regex>, pat: &str) -> &'static Regex { cell.get_or_init(|| Regex::new(pat).unwrap()) }
@@ -83,6 +86,7 @@ pub fn parse_guano(text: &str, m: &mut FileMeta) -> bool {
             "Make" => m.make = Some(v.to_string()),
             "Model" => m.model = Some(v.to_string()),
             "Serial" => m.serial = Some(v.to_string()),
+            "TE" => m.time_expansion = v.parse::<f64>().ok().filter(|t| *t > 1.0 && *t <= 100.0),
             _ => {}
         }
     }
@@ -166,6 +170,13 @@ mod tests {
         assert_eq!(m.tz_offset_min, Some(120));
         assert_eq!(m.lat, Some(-19.41));
         assert_eq!(m.model.as_deref(), Some("Song Meter Micro"));
+        assert_eq!(m.time_expansion, None);
+        let mut m = FileMeta::default();
+        parse_guano("GUANO|Version: 1.0\nTE: 10\nSamplerate: 38400\n", &mut m);
+        assert_eq!(m.time_expansion, Some(10.0));
+        let mut m = FileMeta::default();
+        parse_guano("GUANO|Version: 1.0\nTE: 1\n", &mut m);
+        assert_eq!(m.time_expansion, None);
     }
     #[test]
     fn week() {

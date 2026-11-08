@@ -48,12 +48,23 @@ pub const CATALOG: &[Pack] = &[
         downloadable: false,
         note: "Not downloadable yet: we have asked the BirdNET team for permission to distribute it. If you have the Studio BirdNET files, add them from a folder.",
     },
+    Pack {
+        id: "batdetect2-uk", name: "BatDetect2 (UK bats)",
+        description: "Mac Aodha et al.'s bat model: finds each echolocation call in ultrasonic recordings and names 17 UK bat species. The default for recordings at 192 kHz and above.",
+        licence: "CC-BY-NC-4.0", licence_url: "https://creativecommons.org/licenses/by-nc/4.0/", dir: "batdetect2",
+        files: &[],
+        downloadable: false,
+        note: "Not downloadable yet: BatDetect2 is for non-commercial use only and no converted copy is published. Make the three files with spike/batdetect2_export.py (see docs/SPIKE.md), then add them from a folder.",
+    },
 ];
 
-/// Files that must be present for a pack to count as installed (BirdNET has no download list yet, so its files are named here).
+/// Files that must be present for a pack to count as installed (BirdNET and BatDetect2 have no download list yet, so their files are named here).
 pub fn required(pack: &Pack) -> Vec<&'static str> {
-    if pack.id == "birdnet-2.4" { vec!["birdnet_v24_cnn.onnx", "birdnet_v24_meta.onnx", "w1.f32", "w2.f32", "M1.f32", "M2.f32", "mel.json", "labels.txt"] }
-    else { pack.files.iter().map(|f| f.name).collect() }
+    match pack.id {
+        "birdnet-2.4" => vec!["birdnet_v24_cnn.onnx", "birdnet_v24_meta.onnx", "w1.f32", "w2.f32", "M1.f32", "M2.f32", "mel.json", "labels.txt"],
+        "batdetect2-uk" => vec!["batdetect2_uk.onnx", "batdetect2.json", "labels.txt"],
+        _ => pack.files.iter().map(|f| f.name).collect(),
+    }
 }
 
 pub fn installed(pack: &Pack, models_dir: &Path) -> bool {

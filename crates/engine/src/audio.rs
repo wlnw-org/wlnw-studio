@@ -27,6 +27,29 @@ pub struct AudioStream {
     pub position: usize,
 }
 
+/// The sample rate written in a recording's header, without decoding any audio.
+pub fn probe_rate(path: &Path) -> Option<u32> {
+    let file = std::fs::File::open(path).ok()?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) { hint.with_extension(ext); }
+    let probed = symphonia::default::get_probe().format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default()).ok()?;
+    probed.format.default_track()?.codec_params.sample_rate
+}
+
+/// The rate a recording was made at: the header rate times the time expansion factor GUANO notes for time-expanded
+/// bat recordings (a 10x recording written at 38.4 kHz was made at 384 kHz).
+pub fn effective_rate(path: &Path) -> Option<u32> {
+    let te = crate::meta::read(path).time_expansion.unwrap_or(1.0);
+    probe_rate(path).map(|r| (r as f64 * te).round() as u32)
+}
+
+/// Opens a recording at its own sample rate (no resampling), mixed to mono.
+pub fn open_native(path: &Path) -> Result<AudioStream> {
+    let rate = probe_rate(path).ok_or_else(|| anyhow!("not an audio file we can read: {}", path.display()))?;
+    open(path, rate)
+}
+
 /// Opens a recording, resampled to `rate` (48 kHz for BirdNET, 32 kHz for Perch).
 pub fn open(path: &Path, rate: u32) -> Result<AudioStream> {
     let file = std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
@@ -105,6 +128,11 @@ impl AudioStream {
         self.position += take;
         Ok(Some((start, c)))
     }
+}
+
+impl AudioStream {
+    /// Samples decoded but not handed out (after `next_window` returned None: the piece too short for a window).
+    pub fn leftover(&self) -> usize { self.out.len() }
 }
 
 /// Reads `secs` seconds starting at `start_s` (48 kHz mono), for review clips.
