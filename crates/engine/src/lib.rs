@@ -10,6 +10,7 @@ pub mod history;
 pub mod import;
 pub mod meta;
 pub mod models;
+pub mod online;
 pub mod perch;
 pub mod publish;
 pub mod review;

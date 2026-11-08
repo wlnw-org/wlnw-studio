@@ -31,7 +31,18 @@ export interface FilePage { rows: FileRow[]; total: number; counts: FileCounts }
 export interface FileQuery { status?: string | null; deployment?: number | null; search?: string | null; offset?: number; limit?: number }
 export interface HistoryEntry { id: number; kind: string; started_at: string; finished_at: string | null; status: string; summary: string; detail: Record<string, unknown> | null }
 
+export type OnlineStatus = "known" | "unusual" | "few" | "unknown";
+export interface OnlineArrival { region: string | null; week: string; low: string | null; high: string | null; support: number }
+export interface SpeciesInfo { status: OnlineStatus; records: number | null; group: string | null; arrival: OnlineArrival | null; title: string | null; line: string | null; image: string | null; credit: string | null; url: string }
+export interface Around { deployment_id: number; species: number | null; more: boolean; areas: { name: string; kind: string | null; km: number }[] }
+
 export const api = {
+  onlineEnabled: () => invoke<boolean>("online_enabled"),
+  setOnlineEnabled: (on: boolean) => invoke<void>("set_online_enabled", { on }),
+  onlinePrefetch: () => invoke<void>("online_prefetch"),
+  onlineFlags: () => invoke<Record<string, OnlineStatus>>("online_flags"),
+  onlineSpecies: (scientific: string, model: string, deployment: number) => invoke<SpeciesInfo | null>("online_species", { scientific, model, deployment }),
+  onlineAround: () => invoke<Around[]>("online_around"),
   listFiles: (query: FileQuery) => invoke<FilePage>("list_files", { query }),
   exportFileList: (query: FileQuery, out: string) => invoke<number>("export_file_list", { query, out }),
   retryFailed: (file: number | null) => invoke<number>("retry_failed", { file }),

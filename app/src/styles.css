@@ -162,3 +162,18 @@ nav.secondary .step { padding-left: 42px; }
 .wnc-card > summary { cursor: pointer; } .wnc-card .search { margin: 6px 0 0; }
 .grid tr.total td { background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
 .disagree { margin-top: 16px; }
+
+/* Wildlife Network when online */
+.settings { font-size: 12px; text-align: left; } .settings > summary { cursor: pointer; color: var(--muted); }
+.settings .switch { display: flex; gap: 6px; align-items: center; margin: 6px 0 4px; font-size: 13px; }
+.home-card .settings { margin-top: 24px; }
+.wn-mark { display: inline-grid; place-items: center; width: 15px; height: 15px; margin-left: 6px; border-radius: 50%; font-size: 10px; font-weight: 700; vertical-align: 1px;
+  background: color-mix(in srgb, var(--warn) 18%, var(--panel)); color: var(--warn); }
+.wn-mark.soft { background: var(--line); color: var(--muted); }
+.wn-filter { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); padding: 6px 12px; border-bottom: 1px solid var(--line); }
+.wn-box { display: flex; gap: 12px; align-items: flex-start; margin: 14px 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); max-width: 720px; }
+.wn-box.unusual { border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); background: color-mix(in srgb, var(--warn) 7%, var(--panel)); }
+.wn-box img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; flex: none; }
+.wn-box p { margin: 2px 0; } .wn-head { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.wn-warn { color: var(--warn); } .wn-soft { color: var(--muted); }
+.around p { margin: 6px 0; }

@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use wlnw_engine::models::{self, Classifier, ModelInfo};
-use wlnw_engine::{agreement, download, export, import, files, history, publish, review, run, scan, store::Project, wnc};
+use wlnw_engine::{agreement, download, export, import, files, history, online, publish, review, run, scan, store::Project, wnc};
 
 #[derive(Default)]
 struct App {
@@ -363,11 +363,85 @@ fn reviewer_name(s: State<App>) -> R<Option<String>> { open(&s)?.setting("review
 #[tauri::command]
 fn history_list(s: State<App>) -> R<Vec<history::Entry>> { history::list(&open(&s)?, 500).map_err(err) }
 
+// ---------- Wildlife Network when online (app setting, not per project) ----------
+
+/// "Use Wildlife Network when online": on unless turned off. Kept in the app's config folder as settings.json.
+static ONLINE: AtomicBool = AtomicBool::new(true);
+static PREFETCHING: AtomicBool = AtomicBool::new(false);
+
+fn app_settings_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    use tauri::Manager;
+    app.path().app_config_dir().ok().map(|d| d.join("settings.json"))
+}
+fn load_app_settings(app: &tauri::AppHandle) {
+    let v: serde_json::Value = app_settings_path(app).and_then(|p| std::fs::read_to_string(p).ok()).and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    ONLINE.store(v["online"].as_bool().unwrap_or(true), Ordering::SeqCst);
+}
+
+#[tauri::command]
+fn online_enabled() -> bool { ONLINE.load(Ordering::SeqCst) }
+
+#[tauri::command]
+fn set_online_enabled(app: tauri::AppHandle, on: bool) -> R<()> {
+    ONLINE.store(on, Ordering::SeqCst);
+    let p = app_settings_path(&app).ok_or("no settings folder")?;
+    if let Some(d) = p.parent() { std::fs::create_dir_all(d).map_err(err)?; }
+    let mut v: serde_json::Value = std::fs::read_to_string(&p).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_else(|| serde_json::json!({}));
+    v["online"] = serde_json::Value::Bool(on);
+    std::fs::write(&p, v.to_string()).map_err(err)
+}
+
+/// Fills the project's cache from wlnw.org in the background (recorder positions rounded to about 10 km, species names);
+/// emits "online-updated" as answers arrive. Does nothing when the setting is off or a fill is already running.
+#[tauri::command]
+fn online_prefetch(app: tauri::AppHandle, s: State<App>) -> R<()> {
+    if !ONLINE.load(Ordering::SeqCst) { return Ok(()); }
+    let file = path(&s)?;
+    if PREFETCHING.swap(true, Ordering::SeqCst) { return Ok(()); }
+    std::thread::spawn(move || {
+        let r = Project::open(&file).ok().map(|p| online::prefetch(&p, &online::http_json, chrono::Utc::now(), || { let _ = app.emit("online-updated", ()); }));
+        PREFETCHING.store(false, Ordering::SeqCst);
+        if matches!(r, Some(Ok(n)) if n > 0) { let _ = app.emit("online-updated", ()); }
+    });
+    Ok(())
+}
+
+/// Species-list markers from the cache (no network): label id to "unusual" or "few".
+#[tauri::command]
+fn online_flags(s: State<App>) -> R<std::collections::HashMap<i64, online::Status>> {
+    if !ONLINE.load(Ordering::SeqCst) { return Ok(Default::default()); }
+    online::flags(&open(&s)?, chrono::Utc::now()).map_err(err)
+}
+
+/// The Review box for one species at one recorder; None when the setting is off.
+#[tauri::command]
+async fn online_species(scientific: String, model: String, deployment: i64, s: State<'_, App>) -> R<Option<online::SpeciesInfo>> {
+    if !ONLINE.load(Ordering::SeqCst) { return Ok(None); }
+    let file = path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        let d = p.deployments().map_err(err)?.into_iter().find(|d| d.id == deployment);
+        let (lat, lon) = d.map(|d| (d.lat, d.lon)).unwrap_or((None, None));
+        let net = |u: &str| online::http_json(u);
+        Ok(Some(online::species_info(&p, &scientific, &model, lat, lon, Some(&net), chrono::Utc::now())))
+    }).await.map_err(err)?
+}
+
+/// "Around this recorder" for every recorder with a position, from the cache (the background fill brings new answers).
+#[tauri::command]
+fn online_around(s: State<App>) -> R<Vec<online::Around>> {
+    if !ONLINE.load(Ordering::SeqCst) { return Ok(vec![]); }
+    let p = open(&s)?;
+    let now = chrono::Utc::now();
+    Ok(p.deployments().map_err(err)?.into_iter().filter_map(|d| Some(online::around(&p, d.id, d.lat?, d.lon?, None, now))).collect())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| { load_app_settings(app.handle()); Ok(()) })
         .manage({
             // A project file given at launch (double-click or `open --args`) opens straight away.
             let a = App::default();
@@ -376,7 +450,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
             species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
-            list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_settle, reviewer_name])
+            list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_settle, reviewer_name,
+            online_enabled, set_online_enabled, online_prefetch, online_flags, online_species, online_around])
         .run(tauri::generate_context!())
         .expect("error while running Wildlife Network Studio");
 }

@@ -2,11 +2,13 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, fmtHours, modelName, modelTag, type Deployment, type Summary } from "../api";
 import MapPicker from "../MapPicker";
+import { AroundRecorders, usePrefetch } from "../Online";
 
 /** Add recordings, then confirm each recorder's place and time zone (filled in from the files when they carry it). */
 export default function Recordings({ summary, refresh, onError, next }: { summary: Summary; refresh: () => void; onError: (e: string) => void; next: () => void }) {
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState<string | null>(null);
+  usePrefetch();
   async function add() {
     const folder = await open({ title: "Choose a folder or drive with recordings", directory: true, multiple: false });
     if (typeof folder !== "string") return;
@@ -57,6 +59,7 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
             <thead><tr><th>Recorder</th><th>Files</th><th>Place</th><th>Times are UTC +</th><th>Models</th><th /></tr></thead>
             <tbody>{deps.map((d) => <Row key={d.id} d={d} onSaved={refresh} onError={onError} />)}</tbody>
           </table>
+          <AroundRecorders deps={deps} />
           <div className="card import-card">
             <h3>Import results from another tool</h3>
             <p className="muted">Already ran BirdNET-Analyzer, BirdNET-Pi, BirdNET-Go or Kaleidoscope on these recordings? Import their results to review and publish them here without processing the audio again.

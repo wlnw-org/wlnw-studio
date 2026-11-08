@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FlagMark, SpeciesBox, useOnlineFlags, usePrefetch } from "../Online";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, isImported, modelName, modelTag, type AgreementReport, type Clip, type Detection, type Similar, type SpeciesRow, type Summary } from "../api";
 
@@ -16,6 +17,9 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
   const [training, setTraining] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [pane, setPane] = useState<"clips" | "agree">("clips");
+  const [unusual, setUnusual] = useState(false);
+  const flags = useOnlineFlags();
+  usePrefetch();
 
   const load = useCallback(async () => { try { setRows(await api.species()); } catch (e) { onError(String(e)); } }, [onError]);
   useEffect(() => { load(); }, [load]);
@@ -56,7 +60,8 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
   }
 
   const row = rows.find((r) => sel && r.label === sel.label && r.model === sel.model) ?? null;
-  const shown = rows.filter((r) => !filter || `${r.common} ${r.scientific}`.toLowerCase().includes(filter.toLowerCase()));
+  const anyFlag = rows.some((r) => flags[r.label]);
+  const shown = rows.filter((r) => (!filter || `${r.common} ${r.scientific}`.toLowerCase().includes(filter.toLowerCase())) && (!unusual || !anyFlag || flags[r.label]));
   const done = queue.filter((d) => d.verdict).length;
   const hasPerch = summary.deployments.some((d) => d.models.includes("perch-2.0"));
   return (
@@ -74,10 +79,11 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
         </div>
         <SecondReviewer onCompare={() => setPane("agree")} onError={onError} />
         <input className="search" placeholder={`Search ${rows.length} species`} value={filter} onChange={(e) => setFilter(e.target.value)} />
+        {anyFlag && <label className="wn-filter"><input type="checkbox" checked={unusual} onChange={(e) => setUnusual(e.target.checked)} /> Unusual for the area</label>}
         <ul>
           {shown.map((r) => (
             <li key={`${r.label}|${r.model}`} className={sel && r.label === sel.label && r.model === sel.model ? "active" : ""} onClick={() => pick(r.label, r.model)}>
-              <div className="sp-name"><b>{r.common || r.scientific}</b><i>{r.common ? r.scientific : ""}</i></div>
+              <div className="sp-name"><b>{r.common || r.scientific}<FlagMark s={flags[r.label]} /></b><i>{r.common ? r.scientific : ""}</i></div>
               <div className="sp-meta">
                 <span title="Detections kept at the current threshold, of all in range">{r.kept.toLocaleString()} / {r.detections.toLocaleString()}</span>
                 <span className={`tag model-${r.model}`} title={modelName(r.model)}>{modelTag(r.model)}</span>
@@ -118,6 +124,7 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
                     <button key={d.id} className={`dot ${k === i ? "cur" : ""} ${d.verdict ?? ""}`} onClick={() => setI(k)} title={`confidence ${d.confidence.toFixed(2)}`}>{d.confidence.toFixed(2)}</button>
                   ))}
                 </div>
+                <SpeciesBox d={queue[i]} />
                 <Teach key={`t${queue[i].id}`} d={queue[i]} onError={onError} />
               </>
             )}

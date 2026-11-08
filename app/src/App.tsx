@@ -8,6 +8,7 @@ import Review from "./screens/Review";
 import Publish from "./screens/Publish";
 import Files from "./screens/Files";
 import History from "./screens/History";
+import { OnlineSetting } from "./Online";
 
 type Step = "recordings" | "process" | "review" | "publish" | "files" | "history";
 const STEPS: { id: Step; label: string; hint: string }[] = [
@@ -74,6 +75,7 @@ export default function App() {
             </div>
           )}
           {error && <p className="error">{error}</p>}
+          <OnlineSetting />
         </div>
       </main>
     );
@@ -102,6 +104,7 @@ export default function App() {
           </button>
         </nav>
         {summary.running && <div className="running"><span className="pulse" /> Processing {prog.files_done} of {prog.files_total} recordings</div>}
+        <OnlineSetting />
         <button className="link small" onClick={() => { setSummary(null); setLive(null); }}>Close project</button>
       </aside>
       <main className="content">

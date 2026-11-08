@@ -27,5 +27,6 @@ wlnw-engine = { path = "../../crates/engine" }
 tauri-plugin-dialog = "2"
 base64 = "0.22"
 anyhow = "1"
+chrono = "0.4"
 
 
