@@ -35,15 +35,41 @@ pub fn model_name(id: &str) -> String {
         // Imported results: the tool's name with no space, so WDX's classifier name/version split keeps it whole.
         "import:birdnet-analyzer" => "BirdNET-Analyzer".into(), "import:birdnet-pi" => "BirdNET-Pi/BirdNET-Go".into(), "import:kaleidoscope" => "Kaleidoscope".into(), x => x.into() }
 }
+/// How a detection's species threshold was set, written next to every exported record so users of the data can judge it.
+pub struct Basis { pub threshold: f64, pub fitted: bool, pub reviewed: i64, pub precision: Option<f64> }
+
+pub fn basis(p: &Project, species: i64, model: &str) -> Basis {
+    use rusqlite::OptionalExtension;
+    let row: Option<(f64, String, Option<f64>, i64)> = p.db.query_row("SELECT threshold, source, precision, reviewed FROM thresholds WHERE species = ?1 AND model = ?2",
+        rusqlite::params![species, model], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional().ok().flatten();
+    match row {
+        Some((t, src, prec, n)) => Basis { threshold: t, fitted: src == "fitted", reviewed: n, precision: prec },
+        None => Basis { threshold: p.default_threshold(model), fitted: false, reviewed: 0, precision: None },
+    }
+}
+
+/// "species threshold 0.62 fitted from 14 reviewed clips (estimated precision 0.93)" or "default threshold 0.50 (species not reviewed)".
+pub fn basis_text(b: &Basis) -> String {
+    if b.fitted {
+        format!("species threshold {:.2} fitted from {} reviewed clips{}", b.threshold, b.reviewed,
+            b.precision.map(|x| format!(" (estimated precision {x:.2})")).unwrap_or_default())
+    } else { format!("default threshold {:.2} (species not reviewed)", b.threshold) }
+}
+
+pub const STUDIO: &str = concat!("Wildlife Network Studio ", env!("CARGO_PKG_VERSION"));
+
 fn status(d: &Detection) -> &'static str { if d.verdict.as_deref() == Some("yes") { "verified by expert" } else { "unverified" } }
 
 pub fn csv(p: &Project, out: &Path) -> Result<usize> {
     let rows = p.accepted()?;
     let mut f = std::io::BufWriter::new(std::fs::File::create(out)?);
-    writeln!(f, "site,latitude,longitude,file,start_s,end_s,utc,scientific_name,common_name,model,confidence,review")?;
+    writeln!(f, "site,latitude,longitude,file,start_s,end_s,utc,scientific_name,common_name,model,confidence,review,threshold,threshold_basis,reviewed_clips,estimated_precision,software")?;
+    let mut cache: std::collections::HashMap<(i64, String), Basis> = std::collections::HashMap::new();
     for d in &rows {
-        writeln!(f, "{},{},{},{},{:.1},{:.1},{},{},{},{},{:.4},{}", q(&d.site), d.lat.map_or(String::new(), |v| v.to_string()), d.lon.map_or(String::new(), |v| v.to_string()),
-            q(&d.path), d.start_s, d.end_s, utc(d), q(&d.scientific), q(&d.common), model_name(&d.model), d.confidence, d.verdict.as_deref().unwrap_or(""))?;
+        let b = cache.entry((d.label, d.model.clone())).or_insert_with(|| basis(p, d.label, &d.model));
+        writeln!(f, "{},{},{},{},{:.1},{:.1},{},{},{},{},{:.4},{},{:.4},{},{},{},{}", q(&d.site), d.lat.map_or(String::new(), |v| v.to_string()), d.lon.map_or(String::new(), |v| v.to_string()),
+            q(&d.path), d.start_s, d.end_s, utc(d), q(&d.scientific), q(&d.common), model_name(&d.model), d.confidence, d.verdict.as_deref().unwrap_or(""),
+            b.threshold, if b.fitted { "fitted" } else { "default" }, b.reviewed, b.precision.map(|x| format!("{x:.3}")).unwrap_or_default(), STUDIO)?;
     }
     Ok(rows.len())
 }
@@ -151,12 +177,15 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
     occ.push_str(&cols.join("\t"));
     occ.push('\n');
     let mut n = 0;
+    let mut cache: std::collections::HashMap<(i64, String), Basis> = std::collections::HashMap::new();
     for d in &rows {
         let (Some(_), Some(lat), Some(lon)) = (d.utc, d.lat, d.lon) else { continue };
         let line = [format!("{ds}:{}", d.id), "MachineObservation".into(), utc(d), d.scientific.clone(), d.common.clone(), format!("{lat:.5}"), format!("{lon:.5}"),
             "100".into(), d.site.clone(), i.people.join(" | "), i.institution.clone().unwrap_or_default(), i.title.clone(), license_url(&i.license).into(),
             format!("{}{}", model_name(&d.model), if d.verdict.as_deref() == Some("yes") { " | confirmed by reviewer" } else { "" }), status(d).into(),
-            format!("confidence {:.4}; clip {:.1} to {:.1} s", d.confidence, d.start_s, d.end_s),
+            format!("{} score {:.4}; {}; clip {:.1} to {:.1} s; {STUDIO}", model_name(&d.model), d.confidence,
+                if d.verdict.as_deref() == Some("yes") { "confirmed by a reviewer".to_string() } else { basis_text(cache.entry((d.label, d.model.clone())).or_insert_with(|| basis(p, d.label, &d.model))) },
+                d.start_s, d.end_s),
             Path::new(&d.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "present".into()];
         let mut line = line.to_vec();
         if has_images { line.extend(["species".to_string(), String::new()]); }
@@ -192,4 +221,15 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
     }
     z.finish()?;
     Ok(n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn basis_wording() {
+        assert_eq!(basis_text(&Basis { threshold: 0.62, fitted: true, reviewed: 14, precision: Some(0.931) }),
+            "species threshold 0.62 fitted from 14 reviewed clips (estimated precision 0.93)");
+        assert_eq!(basis_text(&Basis { threshold: 0.5, fitted: false, reviewed: 0, precision: None }), "default threshold 0.50 (species not reviewed)");
+    }
 }
