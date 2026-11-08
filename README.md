@@ -19,8 +19,17 @@ the species on your own computer, helps you check them in minutes, and exports t
 
 ## Download
 
-Installers for macOS (Apple Silicon) and Windows: [latest release](https://github.com/wlnw-org/wlnw-studio/releases/latest).
-Early test releases. macOS builds are signed with an Apple Developer ID and notarized by Apple.
+Installers for macOS (Apple Silicon and Intel), Windows and Linux (x64 AppImage and deb):
+[latest release](https://github.com/wlnw-org/wlnw-studio/releases/latest). Early test releases. macOS builds are signed
+with an Apple Developer ID and notarized by Apple. Studio checks for a newer version when it starts and offers to install
+it; every update is verified against the project's signing key before it is installed.
+
+- [macOS, Apple Silicon](https://github.com/wlnw-org/wlnw-studio/releases/latest/download/Wildlife-Network-Studio-mac-arm64.dmg)
+- [macOS, Intel](https://github.com/wlnw-org/wlnw-studio/releases/latest/download/Wildlife-Network-Studio-mac-intel.dmg)
+- [Windows installer](https://github.com/wlnw-org/wlnw-studio/releases/latest/download/Wildlife-Network-Studio-windows-x64-setup.exe)
+- [Linux AppImage](https://github.com/wlnw-org/wlnw-studio/releases/latest/download/Wildlife-Network-Studio-linux-x64.AppImage)
+  (`chmod +x` it, then run it) or [deb](https://github.com/wlnw-org/wlnw-studio/releases/latest/download/Wildlife-Network-Studio-linux-x64.deb)
+  for Debian and Ubuntu
 
 Windows builds: free code signing provided by SignPath.io, certificate by SignPath Foundation (application in progress:
 until it is approved, Windows installers are unsigned and Windows shows a SmartScreen warning). See the
@@ -56,7 +65,9 @@ SignPath Foundation); macOS releases are signed with the maintainer's Apple Deve
 ## Privacy
 
 Wildlife Network Studio will not transfer any information to other networked systems unless specifically requested by
-the user. Your recordings are processed on your own computer and are never uploaded. The app contacts other systems only
+the user, apart from the update check below. Your recordings are processed on your own computer and are never uploaded.
+When it starts, the app asks GitHub (github.com) whether a newer version exists; that request carries no information about
+you or your recordings, and nothing is downloaded unless you click Install. Otherwise the app contacts other systems only
 when you ask it to:
 - downloading a model (Perch 2.0 from Hugging Face), when you click Download;
 - map tiles (OpenFreeMap) when you open the place picker;
