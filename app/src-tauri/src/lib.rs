@@ -386,6 +386,16 @@ fn answers_load(file: String, s: State<App>) -> R<agreement::LoadReport> {
 #[tauri::command]
 fn agreement_report(reviewer: Option<String>, s: State<App>) -> R<agreement::Report> { agreement::report(&open(&s)?, reviewer.as_deref()).map_err(err) }
 
+/// Agreement and precision per species, with 95% intervals, as one CSV for a paper's supplement.
+#[tauri::command]
+fn agreement_table(reviewer: Option<String>, out: String, s: State<App>) -> R<usize> {
+    let p = open(&s)?;
+    let t = history::now(&p);
+    let r = agreement::paper_table(&p, reviewer.as_deref(), Path::new(&out));
+    history::log(&p, "export", &t, &r, |n| format!("Saved agreement and precision for {} species to {out}", history::n(*n as i64)), "Saving the table failed");
+    r.map_err(err)
+}
+
 #[tauri::command]
 fn agreement_settle(reviewer: String, detection: i64, verdict: String, s: State<App>) -> R<()> { agreement::settle(&open(&s)?, &reviewer, detection, &verdict).map_err(err) }
 
@@ -565,7 +575,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
             species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
-            list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_settle, reviewer_name,
+            list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
             online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,
             set_deployment_country, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
         .run(tauri::generate_context!())

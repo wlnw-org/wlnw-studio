@@ -172,7 +172,9 @@ function SecondReviewer({ onCompare, onError }: { onCompare: () => void; onError
   );
 }
 
-const pct = (v: number | null) => (v == null ? "" : `${Math.round(v)}%`);
+/** "80% (49 to 94)": the value with its 95% interval, when there is one. */
+const withCi = (v: number | null, lo: number | null, hi: number | null, f: (x: number) => string) =>
+  v == null ? "" : lo == null || hi == null ? f(v) : `${f(v)} (${f(lo)} ${tr("to")} ${f(hi)})`;
 /** A stored answer (yes, no, unsure, nothing) in the interface language. */
 const VERDICTS: Record<string, string> = { yes: "yes", no: "no", unsure: "unsure", nothing: "nothing" };
 const verdictWord = (v: string | null) => (v && VERDICTS[v] ? tr(VERDICTS[v]) : v ?? "");
@@ -185,6 +187,12 @@ function Agreement({ onChanged, onError }: { onChanged: () => void; onError: (e:
   const load = useCallback(async (who: string | null) => { try { setRep(await api.agreementReport(who)); } catch (e) { onError(String(e)); } }, [onError]);
   useEffect(() => { load(null); }, [load]);
   const list = rep?.disagreements ?? [];
+  const [tableNote, setTableNote] = useState<string | null>(null);
+  async function saveTable() {
+    const out = await save({ title: t("Save table for a paper (CSV)"), defaultPath: t("agreement-and-precision") + ".csv", filters: [{ name: "CSV", extensions: ["csv"] }] });
+    if (!out) return;
+    try { const n = await api.agreementTable(rep?.reviewer ?? null, out); setTableNote(t("Saved {n} species.", { n })); } catch (e) { onError(String(e)); }
+  }
   const d = cur != null ? list[cur] : undefined;
   const settle = useCallback(async (v: "yes" | "no" | "unsure") => {
     if (!rep?.reviewer || !d) return;
@@ -228,12 +236,20 @@ function Agreement({ onChanged, onError }: { onChanged: () => void; onError: (e:
                 <tr key={x.scientific} className={k === 0 ? "total" : ""}>
                   <td>{k === 0 ? <b>{t("All species")}</b> : <>{sp(x)} {x.common && <i className="muted">{x.scientific}</i>}</>}</td>
                   <td>{x.both}</td><td title={t("Both yes {yy}, both no {nn}, you yes and {who} no {yn}, you no and {who} yes {ny}", { yy: x.yy, nn: x.nn, yn: x.yn, ny: x.ny, who })}>{x.yes_no}</td>
-                  <td>{pct(x.percent)}</td>
-                  <td title={x.kappa == null && x.yes_no ? t("Not defined: you both gave the same answer every time") : ""}>{x.kappa == null ? (x.yes_no ? t("n/a") : "") : x.kappa.toFixed(2)}</td>
+                  <td>{withCi(x.percent, x.percent_low, x.percent_high, (v) => `${Math.round(v)}%`)}</td>
+                  <td title={x.kappa == null && x.yes_no ? t("Not defined: you both gave the same answer every time") : ""}>{x.kappa == null ? (x.yes_no ? t("n/a") : "") : withCi(x.kappa, x.kappa_low, x.kappa_high, (v) => v.toFixed(2))}</td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <p className="muted small">{t("In brackets: 95% interval (Wilson for agreement, large-sample for kappa). With few clips the interval is wide.")}</p>
+          <div className="row tight">
+            <button onClick={saveTable}>{t("Save table for a paper (CSV)")}</button>
+            {tableNote && <span className="small">{tableNote}</span>}
+          </div>
+          <details className="small"><summary>{t("Methods sentence")}</summary>
+            <p className="muted">{t("Two reviewers independently checked {n} detections in Wildlife Network Studio, answering yes, no or not sure. Agreement was measured on yes and no answers with Cohen's kappa (overall {kappa}); disagreements were then settled together. Precision per species is the share of reviewed detections at or above the species' threshold answered yes, with Wilson 95% intervals.", { n: rep.overall.yes_no, kappa: withCi(rep.overall.kappa, rep.overall.kappa_low, rep.overall.kappa_high, (v) => v.toFixed(2)) || t("n/a") })}</p>
+          </details>
           <div className="card disagree">
             <h3>{t("Disagreements to settle ({n})", { n: list.length })}{rep.settled ? <small className="muted"> {t("{n} settled", { n: rep.settled })}</small> : null}</h3>
             {list.length === 0 ? <p className="muted">{t("None left.")}</p> : (

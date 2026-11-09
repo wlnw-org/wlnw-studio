@@ -91,6 +91,26 @@ pub fn kappa(a: f64, b: f64, c: f64, d: f64) -> Option<f64> {
     Some((po - pe) / (1.0 - pe))
 }
 
+/// Wilson 95% interval for k successes out of n, as fractions. None when n is 0.
+pub fn wilson(k: f64, n: f64) -> Option<(f64, f64)> {
+    if n <= 0.0 { return None; }
+    let z = 1.959_963_985_f64; let p = k / n; let z2 = z * z;
+    let centre = (p + z2 / (2.0 * n)) / (1.0 + z2 / n);
+    let half = z * ((p * (1.0 - p) + z2 / (4.0 * n)) / n).sqrt() / (1.0 + z2 / n);
+    Some(((centre - half).max(0.0), (centre + half).min(1.0)))
+}
+
+/// Approximate 95% interval for Cohen's kappa from its large-sample standard error, sqrt(po (1 - po) / (n (1 - pe)^2)),
+/// clipped to -1..1. Rough for small n: shown with the count so readers can judge.
+pub fn kappa_interval(a: f64, b: f64, c: f64, d: f64) -> Option<(f64, f64)> {
+    let k = kappa(a, b, c, d)?;
+    let n = a + b + c + d;
+    let po = (a + d) / n;
+    let pe = ((a + b) * (a + c) + (c + d) * (b + d)) / (n * n);
+    let se = (po * (1.0 - po) / (n * (1.0 - pe).powi(2))).sqrt();
+    Some(((k - 1.959_963_985 * se).max(-1.0), (k + 1.959_963_985 * se).min(1.0)))
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct SpeciesAgreement {
     pub scientific: String, pub common: String,
@@ -99,6 +119,8 @@ pub struct SpeciesAgreement {
     /// Both yes, first yes and second no, first no and second yes, both no.
     pub yy: i64, pub yn: i64, pub ny: i64, pub nn: i64,
     pub percent: Option<f64>, pub kappa: Option<f64>,
+    /// 95% intervals: percent agreement (Wilson) and kappa (large-sample).
+    pub percent_low: Option<f64>, pub percent_high: Option<f64>, pub kappa_low: Option<f64>, pub kappa_high: Option<f64>,
 }
 impl SpeciesAgreement {
     fn add(&mut self, mine: &str, other: &str) {
@@ -110,6 +132,8 @@ impl SpeciesAgreement {
         let (a, b, c, d) = (self.yy as f64, self.yn as f64, self.ny as f64, self.nn as f64);
         self.percent = (self.yes_no > 0).then(|| 100.0 * (a + d) / self.yes_no as f64);
         self.kappa = kappa(a, b, c, d);
+        if let Some((lo, hi)) = wilson(a + d, self.yes_no as f64) { self.percent_low = Some(100.0 * lo); self.percent_high = Some(100.0 * hi); }
+        if let Some((lo, hi)) = kappa_interval(a, b, c, d) { self.kappa_low = Some(lo); self.kappa_high = Some(hi); }
     }
 }
 
@@ -165,6 +189,65 @@ pub fn report(p: &Project, reviewer: Option<&str>) -> Result<Report> {
 }
 
 /// Settles a disagreement: `verdict` becomes the project's answer (and refits that species' threshold); the first answer is kept for the figures.
+/// Precision per species from this project's final answers: of the reviewed detections at or above the species' threshold
+/// for their model, the share answered yes (not sure left out), with a Wilson 95% interval. Reviews are sampled across
+/// score levels, so this describes the reviewed clips; the fitted threshold's own estimate weights them by score level.
+#[derive(Debug, Clone, Serialize)]
+pub struct SpeciesPrecision { pub scientific: String, pub common: String, pub yes: i64, pub no: i64, pub precision: Option<f64>, pub low: Option<f64>, pub high: Option<f64> }
+
+pub fn precision(p: &Project) -> Result<Vec<SpeciesPrecision>> {
+    let mut st = p.db.prepare("SELECT d.species, d.model, s.scientific, s.common, d.confidence, r.verdict FROM reviews r JOIN detections d ON d.id = r.detection_id
+        JOIN species s ON s.id = d.species WHERE r.verdict IN ('yes', 'no')")?;
+    let mut thr: HashMap<(i64, String), f64> = HashMap::new();
+    let mut per: BTreeMap<String, SpeciesPrecision> = BTreeMap::new();
+    for r in st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, f64>(4)?, r.get::<_, String>(5)?)))? {
+        let (sp, model, sci, common, conf, verdict) = r?;
+        let t = *thr.entry((sp, model.clone())).or_insert_with(|| p.threshold(sp, &model));
+        if conf < t { continue; }
+        let e = per.entry(sci.clone()).or_insert_with(|| SpeciesPrecision { scientific: sci, common, yes: 0, no: 0, precision: None, low: None, high: None });
+        if verdict == "yes" { e.yes += 1 } else { e.no += 1 }
+    }
+    let mut out: Vec<SpeciesPrecision> = per.into_values().map(|mut e| {
+        let n = (e.yes + e.no) as f64;
+        e.precision = (n > 0.0).then(|| e.yes as f64 / n);
+        if let Some((lo, hi)) = wilson(e.yes as f64, n) { e.low = Some(lo); e.high = Some(hi); }
+        e
+    }).collect();
+    out.sort_by(|a, b| (b.yes + b.no).cmp(&(a.yes + a.no)).then(a.scientific.cmp(&b.scientific)));
+    Ok(out)
+}
+
+fn f2(v: Option<f64>) -> String { v.map(|x| format!("{x:.3}")).unwrap_or_default() }
+fn q(v: &str) -> String { if v.contains([',', '"', '\n']) { format!("\"{}\"", v.replace('"', "\"\"")) } else { v.to_string() } }
+
+/// One CSV for a paper's supplement: agreement with the other reviewer (when one is loaded) and precision, per species and overall.
+pub fn paper_table(p: &Project, reviewer: Option<&str>, out: &Path) -> Result<usize> {
+    let rep = report(p, reviewer)?;
+    let prec = precision(p)?;
+    let agree: HashMap<&str, &SpeciesAgreement> = rep.species.iter().map(|s| (s.scientific.as_str(), s)).collect();
+    let mut names: Vec<(&str, &str)> = prec.iter().map(|x| (x.scientific.as_str(), x.common.as_str())).collect();
+    for s in &rep.species { if !names.iter().any(|n| n.0 == s.scientific) { names.push((&s.scientific, &s.common)); } }
+    let mut w = String::from("scientific_name,common_name,reviewed_by_both,both_yes_or_no,agreement_percent,agreement_low,agreement_high,kappa,kappa_low,kappa_high,reviewed_at_or_above_threshold_yes,reviewed_at_or_above_threshold_no,precision,precision_low,precision_high,second_reviewer\n");
+    let row = |w: &mut String, sci: &str, common: &str, a: Option<&SpeciesAgreement>, pr: Option<&SpeciesPrecision>| {
+        let pct = |v: Option<f64>| v.map(|x| format!("{x:.1}")).unwrap_or_default();
+        w.push_str(&[q(sci), q(common), a.map_or(String::new(), |a| a.both.to_string()), a.map_or(String::new(), |a| a.yes_no.to_string()),
+            pct(a.and_then(|a| a.percent)), pct(a.and_then(|a| a.percent_low)), pct(a.and_then(|a| a.percent_high)),
+            f2(a.and_then(|a| a.kappa)), f2(a.and_then(|a| a.kappa_low)), f2(a.and_then(|a| a.kappa_high)),
+            pr.map_or(String::new(), |x| x.yes.to_string()), pr.map_or(String::new(), |x| x.no.to_string()),
+            f2(pr.and_then(|x| x.precision)), f2(pr.and_then(|x| x.low)), f2(pr.and_then(|x| x.high)), q(rep.reviewer.as_deref().unwrap_or(""))].join(","));
+        w.push('\n');
+    };
+    for (sci, common) in &names { row(&mut w, sci, common, agree.get(sci).copied(), prec.iter().find(|x| x.scientific == *sci)); }
+    // Overall precision pools every species' reviewed detections at or above threshold.
+    let (y, n) = prec.iter().fold((0, 0), |acc, x| (acc.0 + x.yes, acc.1 + x.no));
+    let tot = (y + n) as f64;
+    let (lo, hi) = wilson(y as f64, tot).map_or((None, None), |(a, b)| (Some(a), Some(b)));
+    let all = SpeciesPrecision { scientific: "All species".into(), common: String::new(), yes: y, no: n, precision: (tot > 0.0).then(|| y as f64 / tot), low: lo, high: hi };
+    row(&mut w, "All species", "", rep.reviewer.as_ref().map(|_| &rep.overall), Some(&all));
+    std::fs::write(out, w)?;
+    Ok(names.len())
+}
+
 pub fn settle(p: &Project, reviewer: &str, detection: i64, verdict: &str) -> Result<()> {
     let mine: Option<String> = p.db.query_row("SELECT verdict FROM reviews WHERE detection_id = ?1", [detection], |r| r.get(0)).optional()?;
     let n = p.db.execute("UPDATE reviews_other SET mine_before = COALESCE(mine_before, ?3), settled_at = datetime('now') WHERE reviewer = ?1 AND detection_id = ?2",
@@ -176,6 +259,17 @@ pub fn settle(p: &Project, reviewer: &str, detection: i64, verdict: &str) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intervals() {
+        // Wilson for 8 of 10: 0.490 to 0.943.
+        let (lo, hi) = wilson(8.0, 10.0).unwrap();
+        assert!((lo - 0.4902).abs() < 1e-3 && (hi - 0.9433).abs() < 1e-3);
+        assert_eq!(wilson(0.0, 0.0), None);
+        // Textbook kappa case (0.4): interval contains it and stays within -1..1.
+        let (klo, khi) = kappa_interval(20.0, 5.0, 10.0, 15.0).unwrap();
+        assert!(klo < 0.4 && khi > 0.4 && klo >= -1.0 && khi <= 1.0);
+    }
 
     #[test]
     fn kappa_math() {
@@ -246,5 +340,15 @@ mod tests {
         load(&me, &f, None).unwrap();
         assert_eq!(report(&me, None).unwrap().settled, 1);
         assert!(settle(&me, "Nobody", d.detection.id, "yes").is_err());
+        // The table for a paper: a header, one row per species and the overall row, with kappa and its interval.
+        let out = std::env::temp_dir().join(format!("wlnw-paper-{}.csv", std::process::id()));
+        paper_table(&me, Some("Priya"), &out).unwrap();
+        let text = std::fs::read_to_string(&out).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert!(lines[0].starts_with("scientific_name,common_name,reviewed_by_both"));
+        let merula = lines.iter().find(|l| l.starts_with("Turdus merula")).unwrap();
+        assert!(merula.contains(",0.167,"));
+        assert!(lines.last().unwrap().starts_with("All species,"));
+        std::fs::remove_file(&out).ok();
     }
 }

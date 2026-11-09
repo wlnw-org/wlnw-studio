@@ -436,6 +436,13 @@ const fr: Record<string, string> = {
   "Delete shared answers": "Supprimer les réponses partagées",
   "Delete": "Supprimer",
   "Keep": "Conserver",
+  "to": "à",
+  "In brackets: 95% interval (Wilson for agreement, large-sample for kappa). With few clips the interval is wide.": "Entre parenthèses : intervalle à 95 % (Wilson pour l'accord, grand échantillon pour le kappa). Avec peu d'extraits, l'intervalle est large.",
+  "Save table for a paper (CSV)": "Enregistrer le tableau pour une publication (CSV)",
+  "Methods sentence": "Phrase pour la section Méthodes",
+  "Two reviewers independently checked {n} detections in Wildlife Network Studio, answering yes, no or not sure. Agreement was measured on yes and no answers with Cohen's kappa (overall {kappa}); disagreements were then settled together. Precision per species is the share of reviewed detections at or above the species' threshold answered yes, with Wilson 95% intervals.": "Deux vérificateurs ont contrôlé indépendamment {n} détections dans Wildlife Network Studio, en répondant oui, non ou incertain. L'accord a été mesuré sur les réponses oui et non avec le kappa de Cohen (global {kappa}) ; les désaccords ont ensuite été tranchés ensemble. La précision par espèce est la part des détections vérifiées au niveau ou au-dessus du seuil de l'espèce ayant reçu la réponse oui, avec des intervalles de Wilson à 95 %.",
+  "agreement-and-precision": "accord-et-precision",
+  "Saved {n} species.": "{n} espèces enregistrées.",
 };
 
 const pt: Record<string, string> = {
@@ -873,6 +880,13 @@ const pt: Record<string, string> = {
   "Delete shared answers": "Excluir respostas compartilhadas",
   "Delete": "Excluir",
   "Keep": "Manter",
+  "to": "a",
+  "In brackets: 95% interval (Wilson for agreement, large-sample for kappa). With few clips the interval is wide.": "Entre parênteses: intervalo de 95% (Wilson para a concordância, grande amostra para o kappa). Com poucos trechos, o intervalo é amplo.",
+  "Save table for a paper (CSV)": "Salvar tabela para um artigo (CSV)",
+  "Methods sentence": "Frase para a seção de Métodos",
+  "Two reviewers independently checked {n} detections in Wildlife Network Studio, answering yes, no or not sure. Agreement was measured on yes and no answers with Cohen's kappa (overall {kappa}); disagreements were then settled together. Precision per species is the share of reviewed detections at or above the species' threshold answered yes, with Wilson 95% intervals.": "Dois revisores verificaram de forma independente {n} detecções no Wildlife Network Studio, respondendo sim, não ou não sei. A concordância foi medida nas respostas sim e não com o kappa de Cohen (geral {kappa}); as divergências foram então resolvidas em conjunto. A precisão por espécie é a proporção de detecções revisadas no limiar da espécie ou acima dele respondidas com sim, com intervalos de Wilson de 95%.",
+  "agreement-and-precision": "concordancia-e-precisao",
+  "Saved {n} species.": "{n} espécies salvas.",
 };
 
 export const MESSAGES: Record<string, Record<string, string>> = { fr, pt };
