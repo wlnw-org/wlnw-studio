@@ -31,12 +31,14 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
     if (format === "raven") { const d = await open({ title: t("Folder for Raven and Audacity tables"), directory: true }); out = typeof d === "string" ? d : null; }
     else if (format === "camtrapdp") { const d = await open({ title: t("Empty folder for the Camtrap DP package"), directory: true }); out = typeof d === "string" ? d : null; }
     else {
-      const ext = { dwca: "zip", wdx: "ndjson", csv: "csv", kaleidoscope: "csv" }[format]!;
-      out = await save({ title: t("Export"), defaultPath: format === "kaleidoscope" ? "id.csv" : `${base}${format === "dwca" ? "-dwca" : ""}.${ext}`, filters: [{ name: format === "kaleidoscope" ? "Kaleidoscope id.csv" : format.toUpperCase(), extensions: [ext] }] });
+      const occ = format.startsWith("occupancy");
+      const ext = occ ? "csv" : { dwca: "zip", wdx: "ndjson", csv: "csv", kaleidoscope: "csv" }[format]!;
+      const name = format === "kaleidoscope" ? "id.csv" : occ ? `${base}-occupancy-${format === "occupancy-day" ? "days" : "weeks"}.csv` : `${base}${format === "dwca" ? "-dwca" : ""}.${ext}`;
+      out = await save({ title: t("Export"), defaultPath: name, filters: [{ name: format === "kaleidoscope" ? "Kaleidoscope id.csv" : occ ? "CSV" : format.toUpperCase(), extensions: [ext] }] });
     }
     if (!out) return;
     setBusy(true); setMsg(null);
-    try { const n = await api.exportTo(format, out); setMsg(format === "camtrapdp" ? t("{n} observations exported to {path}. Images with people were left out, and so were images without a time or a camera without a place.", { n: n.toLocaleString(), path: out }) : t("{n} detections exported to {path}.", { n: n.toLocaleString(), path: out })); } catch (e) { onError(String(e)); }
+    try { const n = await api.exportTo(format, out); setMsg(format.startsWith("occupancy") ? t("Occupancy table saved to {path}, built from {n} detections, with minutes recorded per site in {effort}.", { n: n.toLocaleString(), path: out, effort: out.replace(/\.csv$/i, "") + "-effort.csv" }) : format === "camtrapdp" ? t("{n} observations exported to {path}. Images with people were left out, and so were images without a time or a camera without a place.", { n: n.toLocaleString(), path: out }) : t("{n} detections exported to {path}.", { n: n.toLocaleString(), path: out })); } catch (e) { onError(String(e)); }
     setBusy(false);
   }
 
@@ -71,6 +73,8 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
           <button disabled={busy} onClick={() => exportAs("wdx")}><b>WDX</b><small>{t("Open detection format, one event per line")}</small></button>
           <button disabled={busy} onClick={() => exportAs("raven")}><b>{t("Raven and Audacity")}</b><small>{t("Selection tables and labels next to each recording")}</small></button>
           <button disabled={busy} onClick={() => exportAs("csv")}><b>CSV</b><small>{t("One row per detection, for R, Python or a spreadsheet")}</small></button>
+          <button disabled={busy} onClick={() => exportAs("occupancy-day")}><b>{t("Occupancy by day")}</b><small>{t("Species by site by day: 1 detected, 0 recorded but not detected, NA not recorded. For occupancy models in R (unmarked, spOccupancy), with a minutes-recorded table")}</small></button>
+          <button disabled={busy} onClick={() => exportAs("occupancy-week")}><b>{t("Occupancy by week")}</b><small>{t("The same table with Monday-to-Sunday weeks, for long deployments")}</small></button>
           <button disabled={busy} onClick={() => exportAs("kaleidoscope")}><b>Kaleidoscope id.csv</b><small>{t("For Kaleidoscope users: your yes answers go in MANUAL ID")}</small></button>
           {summary.images && <button disabled={busy} onClick={() => exportAs("camtrapdp")}><b>Camtrap DP</b><small>{t("Camera-trap images: deployments, media and observations, for GBIF, Agouti or camtraptor")}</small></button>}
         </div>

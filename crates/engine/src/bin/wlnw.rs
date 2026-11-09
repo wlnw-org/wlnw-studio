@@ -23,12 +23,12 @@
 //!   wlnw answers-load <project.wlnw> <file.wlnr> [label]        another reviewer's answers
 //!   wlnw agreement <project.wlnw> [reviewer]         agreement per species and disagreements
 //!   wlnw settle <project.wlnw> <reviewer> <detection id> yes|no|unsure
-//!   wlnw export <project.wlnw> csv|wdx|dwca|raven|kaleidoscope|camtrapdp <out>
+//!   wlnw export <project.wlnw> csv|wdx|dwca|raven|kaleidoscope|camtrapdp|occupancy-day|occupancy-week <out>
 //!   wlnw publish <project.wlnw> <dataset id> [--submit]   (key in WLNW_UPLOAD_KEY)
 use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use wlnw_engine::{agreement, export, import, files, history, images, models, publish, review, run, scan, store::Project, wnc};
+use wlnw_engine::{agreement, export, import, files, history, images, models, occupancy, publish, review, run, scan, store::Project, wnc};
 
 fn models_dir(dir: Option<&String>) -> PathBuf {
     dir.map(PathBuf::from).or_else(|| std::env::var("WLNW_MODELS").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("models"))
@@ -155,7 +155,12 @@ fn main() -> Result<()> {
                 Some("kaleidoscope") => (export::kaleidoscope(&p, out), "a Kaleidoscope id.csv"),
                 Some("camtrapdp") => (images::camtrapdp(&p, out).map(|r| { eprintln!("{} deployments, {} images, {} observations; left out: {} images with people, {} without a time or place",
                     r.deployments, r.media, r.observations, r.left_out_people, r.left_out_no_time_or_place); r.observations }), "a Camtrap DP package"),
-                _ => bail!("format: csv, wdx, dwca, raven, kaleidoscope or camtrapdp"),
+                Some(f @ ("occupancy-day" | "occupancy-week")) => {
+                    let per = if f == "occupancy-day" { occupancy::Period::Day } else { occupancy::Period::Week };
+                    (occupancy::export(&p, out, per).map(|r| { eprintln!("{} species x {} sites x {} periods; effort in {}; {} recordings without a time left out",
+                        r.species, r.sites, r.periods, r.effort_file, r.files_without_time); r.detections }), "occupancy tables")
+                }
+                _ => bail!("format: csv, wdx, dwca, raven, kaleidoscope, camtrapdp, occupancy-day or occupancy-week"),
             };
             history::log(&p, "export", &t, &r, |k| format!("Exported {} detections as {name} to {} (command line)", history::n(*k as i64), out.display()), "Export failed");
             let n = r?;

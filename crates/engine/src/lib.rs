@@ -12,6 +12,7 @@ pub mod images;
 pub mod import;
 pub mod meta;
 pub mod models;
+pub mod occupancy;
 pub mod online;
 pub mod perch;
 pub mod photo;

@@ -216,13 +216,38 @@ fn stream(p: &Project, mut f: impl FnMut(i64, &[f32])) -> Result<()> {
 pub struct Similar { pub window_id: i64, pub file_id: i64, pub path: String, pub start_s: f64, pub end_s: f64, pub similarity: f32, pub site: String }
 
 /// The windows that sound most like a given one (cosine similarity of Perch embeddings), for "find more like this".
-pub fn similar(p: &Project, window_id: i64, n: usize) -> Result<Vec<Similar>> {
-    let row: i64 = p.db.query_row("SELECT row FROM windows WHERE id = ?1", [window_id], |r| r.get(0))?;
-    let q = p.read_embeddings(&[row], EMBED)?.remove(0);
+pub fn similar(p: &Project, window_id: i64, n: usize) -> Result<Vec<Similar>> { similar_to(p, &[window_id], &HashSet::new(), n) }
+
+/// "Find more" for a species: searches with the clip in hand plus every window already marked as that species (their
+/// average, so each round of marking sharpens the search), and leaves out windows already marked yes or no for it.
+pub fn similar_for_species(p: &Project, window_id: i64, scientific: &str, n: usize) -> Result<(Vec<Similar>, usize)> {
+    let mut seeds = vec![window_id];
+    let mut skip = HashSet::new();
+    let mut st = p.db.prepare("SELECT e.window_id, e.present FROM examples e JOIN species s ON s.id = e.species WHERE s.scientific = ?1")?;
+    for r in st.query_map([scientific.trim()], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, bool>(1)?)))? {
+        let (w, present) = r?;
+        skip.insert(w);
+        if present && w != window_id { seeds.push(w); }
+    }
+    let n_seeds = seeds.len();
+    Ok((similar_to(p, &seeds, &skip, n)?, n_seeds))
+}
+
+fn similar_to(p: &Project, windows: &[i64], skip_windows: &HashSet<i64>, n: usize) -> Result<Vec<Similar>> {
+    let mut rows = Vec::new();
+    for w in windows { rows.push(p.db.query_row("SELECT row FROM windows WHERE id = ?1", [w], |r| r.get::<_, i64>(0))?); }
+    let mut skip: HashSet<i64> = rows.iter().copied().collect();
+    for w in skip_windows { if let Ok(r) = p.db.query_row("SELECT row FROM windows WHERE id = ?1", [w], |r| r.get::<_, i64>(0)) { skip.insert(r); } }
+    // Average of the unit-length seed embeddings: one seed gives plain cosine similarity to it.
+    let mut q = vec![0f32; EMBED];
+    for e in p.read_embeddings(&rows, EMBED)? {
+        let len = dot(&e, &e).sqrt().max(1e-6);
+        for (a, b) in q.iter_mut().zip(&e) { *a += b / len; }
+    }
     let qn = dot(&q, &q).sqrt().max(1e-6);
     let mut best: Vec<(f32, i64)> = Vec::new();
     stream(p, |r, x| {
-        if r == row { return; }
+        if skip.contains(&r) { return; }
         let s = dot(&q, x) / (qn * dot(x, x).sqrt().max(1e-6));
         if best.len() < n || s > best.last().unwrap().0 {
             let at = best.partition_point(|b| b.0 > s);
@@ -259,6 +284,31 @@ pub fn add_example(p: &Project, window_id: i64, scientific: &str, common: &str, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn find_more_uses_marked_examples_and_skips_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Project::open(&dir.path().join("t.wlnw")).unwrap();
+        p.db.execute_batch("INSERT INTO deployments (id, name, folder, serial) VALUES (1, 'A', '/a', 'A');
+            INSERT INTO files (id, deployment_id, path) VALUES (1, 1, '/a/1.wav');").unwrap();
+        // Window 1 = the clip in hand; 2 and 3 near it; 4 in another direction (marked yes later); 5 near window 4; 6 far from all.
+        let v = |a: f32, b: f32| { let mut x = vec![0f32; EMBED]; x[0] = a; x[1] = b; x[2] = 0.05; x };
+        let embs = vec![v(1.0, 0.0), v(0.95, 0.1), v(0.9, 0.2), v(0.0, 1.0), v(0.1, 0.95), v(-1.0, 0.0)];
+        let rows = p.append_embeddings(&embs).unwrap();
+        for (i, r) in rows.iter().enumerate() {
+            p.db.execute("INSERT INTO windows (id, file_id, model, start_s, end_s, row) VALUES (?1, 1, 'perch-2.0', ?2, ?2 + 5, ?3)", params![i as i64 + 1, i as f64 * 5.0, r]).unwrap();
+        }
+        let (first, seeds) = similar_for_species(&p, 1, "Rana temporaria", 2).unwrap();
+        assert_eq!(seeds, 1);
+        assert_eq!(first.iter().map(|w| w.window_id).collect::<Vec<_>>(), vec![2, 3]);
+        // Mark window 2 "not it" and window 4 yes: the next search skips both and leans towards window 4's sound.
+        add_example(&p, 2, "Rana temporaria", "", false).unwrap();
+        add_example(&p, 4, "Rana temporaria", "", true).unwrap();
+        let (next, seeds) = similar_for_species(&p, 1, "Rana temporaria", 2).unwrap();
+        assert_eq!(seeds, 2);
+        let ids: Vec<i64> = next.iter().map(|w| w.window_id).collect();
+        assert!(!ids.contains(&2) && !ids.contains(&4) && !ids.contains(&1));
+        assert!(ids.contains(&5), "window 5 sits near the newly marked example: {ids:?}");
+    }
     #[test]
     fn learns_a_separable_class() {
         // Two clusters in 4 dimensions: the classifier must separate them and cross-validate well.

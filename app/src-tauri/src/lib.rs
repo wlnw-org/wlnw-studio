@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use wlnw_engine::models::{self, Classifier, ModelInfo};
-use wlnw_engine::{agreement, camtrap, download, export, import, files, history, images, online, publish, review, run, scan, share, store::Project, wnc};
+use wlnw_engine::{agreement, camtrap, download, export, import, files, history, images, occupancy, online, publish, review, run, scan, share, store::Project, wnc};
 
 #[derive(Default)]
 struct App {
@@ -260,14 +260,18 @@ fn name_sound(detection: i64, scientific: String, common: String, present: bool,
 struct SimilarOut { window_id: i64, file_id: i64, path: String, start_s: f64, end_s: f64, similarity: f32, site: String }
 
 #[tauri::command]
-async fn similar(detection: i64, n: usize, s: State<'_, App>) -> R<Vec<SimilarOut>> {
+async fn similar(detection: i64, scientific: String, n: usize, s: State<'_, App>) -> R<SimilarResult> {
     let file = path(&s)?;
     tauri::async_runtime::spawn_blocking(move || {
         let p = Project::open(&file).map_err(err)?;
         let w = wnc::window_for(&p, detection).map_err(err)?.ok_or("This recording has not been through Perch yet, so similar sounds cannot be searched.")?;
-        Ok(wnc::similar(&p, w, n).map_err(err)?.into_iter().map(|x| SimilarOut { window_id: x.window_id, file_id: x.file_id, path: x.path, start_s: x.start_s, end_s: x.end_s, similarity: x.similarity, site: x.site }).collect())
+        let (found, seeds) = wnc::similar_for_species(&p, w, &scientific, n).map_err(err)?;
+        Ok(SimilarResult { seeds, windows: found.into_iter().map(|x| SimilarOut { window_id: x.window_id, file_id: x.file_id, path: x.path, start_s: x.start_s, end_s: x.end_s, similarity: x.similarity, site: x.site }).collect() })
     }).await.map_err(err)?
 }
+
+#[derive(Serialize)]
+struct SimilarResult { seeds: usize, windows: Vec<SimilarOut> }
 
 #[tauri::command]
 fn label_window(window: i64, scientific: String, common: String, present: bool, s: State<App>) -> R<()> {
@@ -313,6 +317,10 @@ async fn export_to(format: String, out: String, s: State<'_, App>) -> R<usize> {
             "csv" => (export::csv(&p, o), "CSV"), "wdx" => (export::wdx(&p, o), "WDX"), "dwca" => (export::dwca(&p, o), "a Darwin Core Archive"),
             "raven" => (export::raven_audacity(&p, o), "Raven and Audacity tables"), "kaleidoscope" => (export::kaleidoscope(&p, o), "a Kaleidoscope id.csv"),
             "camtrapdp" => (images::camtrapdp(&p, o).map(|r| r.observations), "a Camtrap DP package"),
+            "occupancy-day" | "occupancy-week" => {
+                let per = if format == "occupancy-day" { occupancy::Period::Day } else { occupancy::Period::Week };
+                (occupancy::export(&p, o, per).map(|r| r.detections), "occupancy tables")
+            }
             _ => return Err("unknown format".into()),
         };
         history::log(&p, "export", &t, &r, |k| format!("Exported {} detections as {name} to {out}", history::n(*k as i64)), "Export failed");

@@ -278,6 +278,8 @@ function Teach({ d, onError }: { d: Detection; onError: (e: string) => void }) {
   const [common, setCommon] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [similar, setSimilar] = useState<Similar[] | null>(null);
+  const [seeds, setSeeds] = useState(1);
+  const [searching, setSearching] = useState(false);
   const [marked, setMarked] = useState<Record<number, boolean>>({});
   const sci = name.trim() || d.scientific;
   async function nameIt(present: boolean) {
@@ -287,7 +289,10 @@ function Teach({ d, onError }: { d: Detection; onError: (e: string) => void }) {
     } catch (e) { onError(String(e)); }
   }
   async function findMore() {
-    try { setSimilar(await api.similar(d.id, 12)); } catch (e) { onError(String(e)); }
+    // Each search uses this clip plus every clip already marked as the species, and skips clips already marked.
+    setSearching(true);
+    try { const r = await api.similar(d.id, sci, 12); setSimilar(r.windows); setSeeds(r.seeds); setMarked({}); } catch (e) { onError(String(e)); }
+    setSearching(false);
   }
   async function mark(w: Similar, present: boolean) {
     try { await api.labelWindow(w.window_id, sci, common.trim(), present); setMarked({ ...marked, [w.window_id]: present }); } catch (e) { onError(String(e)); }
@@ -304,7 +309,7 @@ function Teach({ d, onError }: { d: Detection; onError: (e: string) => void }) {
         <button onClick={() => nameIt(true)}>{t("This is {name}", { name: sci })}</button>
         <button onClick={() => nameIt(false)}>{t("{name} is not here", { name: sci })}</button>
         {/* Imported results have no Perch embeddings to search. */}
-        {!isImported(d.model) && <button onClick={findMore}>{t("Find more like this")}</button>}
+        {!isImported(d.model) && <button disabled={searching} onClick={findMore}>{t("Find more like this")}</button>}
       </div>
       {msg && <p className="note">{msg}</p>}
       {similar && (
@@ -312,6 +317,12 @@ function Teach({ d, onError }: { d: Detection; onError: (e: string) => void }) {
           <p className="muted small">{t("The most similar 5 s windows in this project. Listen and mark the ones that are {name}; then train the classifier.", { name: sci })}</p>
           {similar.length === 0 && <p className="muted">{t("Nothing similar found.")}</p>}
           {similar.map((w) => <SimilarRow key={w.window_id} w={w} sci={sci} mark={marked[w.window_id]} onMark={(p) => mark(w, p)} onError={onError} />)}
+          {similar.length > 0 && (
+            <p className="row tight">
+              <button disabled={searching} onClick={findMore}>{t("Find more")}</button>
+              <span className="muted small">{seeds > 1 ? t("Searched with {n} clips marked {name}. Clips you have marked are not shown again.", { n: seeds, name: sci }) : t("Mark some, then find more: the next search uses every clip you marked {name} and skips the ones you have marked.", { name: sci })}</span>
+            </p>
+          )}
         </div>
       )}
     </details>
