@@ -17,6 +17,26 @@ the species on your own computer, helps you check them in minutes, and exports t
 - **Export.** Darwin Core Archive for GBIF, WDX, Raven and Audacity tables, CSV, or publish to a Wildlife Network
   dataset with credit to its authors.
 
+## See it work
+
+**1. Add a folder of recordings, then name each recorder and say where it was.**
+
+<img src="docs/media/studio-add-recordings.gif" width="720" alt="Adding a folder of recordings and entering the recorder's name and place" />
+
+**2. Find species. The models run on your own computer.**
+
+<img src="docs/media/studio-find-species.gif" width="720" alt="Finding species: progress shows recordings done, minutes of audio and detections" />
+
+**3. Check the results. Play clips and answer yes, no or not sure.**
+
+<img src="docs/media/studio-review.gif" width="720" alt="Reviewing Eurasian Blackbird clips on the spectrogram" />
+
+**4. Export for GBIF, as CSV or Raven tables, or publish to Wildlife Network.**
+
+<img src="docs/media/studio-export.gif" width="720" alt="The export screen with dataset details and export formats" />
+
+The recordings in these clips are CC0 bird recordings shared by iNaturalist users.
+
 ## Download
 
 Installers for macOS (Apple Silicon and Intel), Windows and Linux (x64 AppImage and deb):
