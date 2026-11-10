@@ -72,7 +72,7 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
           <button disabled={busy} onClick={() => exportAs("dwca")}><b>Darwin Core Archive</b><small>{t("For GBIF: upload to your IPT or send to your GBIF node")}</small></button>
           <button disabled={busy} onClick={() => exportAs("wdx")}><b>WDX</b><small>{t("Open detection format, one event per line")}</small></button>
           <button disabled={busy} onClick={() => exportAs("raven")}><b>{t("Raven and Audacity")}</b><small>{t("Selection tables and labels next to each recording")}</small></button>
-          <button disabled={busy} onClick={() => exportAs("csv")}><b>CSV</b><small>{t("One row per detection, for R, Python or a spreadsheet")}</small></button>
+          <button disabled={busy} onClick={() => exportAs("csv")}><b>CSV</b><small>{t("One row per detection or camera-trap box, for R, Python or a spreadsheet")}</small></button>
           <button disabled={busy} onClick={() => exportAs("occupancy-day")}><b>{t("Occupancy by day")}</b><small>{t("Species by site by day: 1 detected, 0 recorded but not detected, NA not recorded. For occupancy models in R (unmarked, spOccupancy), with a minutes-recorded table")}</small></button>
           <button disabled={busy} onClick={() => exportAs("occupancy-week")}><b>{t("Occupancy by week")}</b><small>{t("The same table with Monday-to-Sunday weeks, for long deployments")}</small></button>
           <button disabled={busy} onClick={() => exportAs("kaleidoscope")}><b>Kaleidoscope id.csv</b><small>{t("For Kaleidoscope users: your yes answers go in MANUAL ID")}</small></button>

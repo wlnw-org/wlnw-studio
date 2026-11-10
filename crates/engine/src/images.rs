@@ -594,6 +594,13 @@ mod tests {
         assert_eq!(q[0].focus, Some(1));
         let people = queue(&p, &Query { show: Some("people".into()), ..Default::default() }).unwrap();
         assert_eq!((people.len(), people[0].focus), (1, Some(4)));
+        // The plain CSV export also lists accepted camera-trap boxes, one row each, never from photos with people.
+        let csv_out = dir.join("all.csv");
+        assert_eq!(crate::export::csv(&p, &csv_out).unwrap(), 3);
+        let csv = std::fs::read_to_string(&csv_out).unwrap();
+        assert!(csv.lines().next().unwrap().ends_with(",media,bbox_x,bbox_y,bbox_width,bbox_height"));
+        assert_eq!(csv.lines().filter(|l| l.contains(",image,")).count(), 3);
+        assert!(csv.contains("/c/a.jpg,,,2026-01-02T00:04:05Z,Panthera leo,lion,SpeciesNet 4.0.3a,0.9500,") && !csv.contains("b.jpg"));
         let out = dir.join("dp");
         let r = camtrapdp(&p, &out).unwrap();
         assert_eq!((r.media, r.left_out_people, r.left_out_no_time_or_place, r.deployments), (3, 1, 1, 1));

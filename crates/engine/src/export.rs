@@ -63,15 +63,23 @@ fn status(d: &Detection) -> &'static str { if d.verdict.as_deref() == Some("yes"
 pub fn csv(p: &Project, out: &Path) -> Result<usize> {
     let rows = p.accepted()?;
     let mut f = std::io::BufWriter::new(std::fs::File::create(out)?);
-    writeln!(f, "site,latitude,longitude,file,start_s,end_s,utc,scientific_name,common_name,model,confidence,review,threshold,threshold_basis,reviewed_clips,estimated_precision,software")?;
+    writeln!(f, "site,latitude,longitude,file,start_s,end_s,utc,scientific_name,common_name,model,confidence,review,threshold,threshold_basis,reviewed_clips,estimated_precision,software,media,bbox_x,bbox_y,bbox_width,bbox_height")?;
     let mut cache: std::collections::HashMap<(i64, String), Basis> = std::collections::HashMap::new();
     for d in &rows {
         let b = cache.entry((d.label, d.model.clone())).or_insert_with(|| basis(p, d.label, &d.model));
-        writeln!(f, "{},{},{},{},{:.1},{:.1},{},{},{},{},{:.4},{},{:.4},{},{},{},{}", q(&d.site), d.lat.map_or(String::new(), |v| v.to_string()), d.lon.map_or(String::new(), |v| v.to_string()),
+        writeln!(f, "{},{},{},{},{:.1},{:.1},{},{},{},{},{:.4},{},{:.4},{},{},{},{},audio,,,,", q(&d.site), d.lat.map_or(String::new(), |v| v.to_string()), d.lon.map_or(String::new(), |v| v.to_string()),
             q(&d.path), d.start_s, d.end_s, utc(d), q(&d.scientific), q(&d.common), model_name(&d.model), d.confidence, d.verdict.as_deref().unwrap_or(""),
             b.threshold, if b.fitted { "fitted" } else { "default" }, b.reviewed, b.precision.map(|x| format!("{x:.3}")).unwrap_or_default(), STUDIO)?;
     }
-    Ok(rows.len())
+    // Camera-trap photos: one row per accepted animal box (people never), so a photo-only project still gets a useful CSV.
+    let boxes = crate::images::accepted(p)?;
+    for o in &boxes {
+        let (name, ver) = crate::images::model_label(&o.model);
+        writeln!(f, "{},{},{},{},,,{},{},{},{},{:.4},{},,,,,{},image,{:.4},{:.4},{:.4},{:.4}", q(&o.site), o.lat.map_or(String::new(), |v| v.to_string()), o.lon.map_or(String::new(), |v| v.to_string()),
+            q(&o.path), o.utc.map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default(), q(&o.scientific), q(&o.common), q(&format!("{name} {ver}")),
+            o.score, o.verdict.as_deref().unwrap_or(""), STUDIO, o.bbox[0], o.bbox[1], o.bbox[2], o.bbox[3])?;
+    }
+    Ok(rows.len() + boxes.len())
 }
 
 /// One Raven selection table and one Audacity label file per recording, next to each other in `dir`.
