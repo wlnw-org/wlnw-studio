@@ -35,7 +35,7 @@ ureq = { version = "2", features = ["json"] }
 walkdir = "2.5.0"
 # BatDetect2 processing lives in its own crate because it is CC BY-NC 4.0, not Apache-2.0 (see crates/batdetect2).
 wlnw-batdetect2 = { path = "../batdetect2" }
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "9.5.1", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
