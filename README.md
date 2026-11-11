@@ -8,8 +8,9 @@ the species on your own computer, helps you check them in minutes, and exports t
 
 - **Process locally.** WAV, FLAC and MP3 from AudioMoth, Song Meter and other recorders; time, place and recorder read
   from the files. Resumes after a crash or a closed lid. Nothing is uploaded.
-- **Models.** Perch 2.0 (about 15,000 species: birds, frogs, insects, mammals; downloaded on first use) and BirdNET 2.4
-  (if you have its files). Perch is the default in Africa and South Asia, where BirdNET knows fewer species.
+- **Models.** Perch 2.0 (about 15,000 species: birds, frogs, insects, mammals; downloaded on first use), BirdNET 2.4,
+  BatDetect2 for UK bats (you make its files from the official package) and SpeciesNet with MegaDetector for camera
+  traps. Perch is the default in Africa and South Asia, where BirdNET knows fewer species.
 - **Review fast.** Clips from every confidence level per species, spectrogram and audio, keyboard shortcuts. Each answer
   refits that species' threshold so what you keep is right at least 90% of the time.
 - **Wildlife Network Classifier.** Learns your local species from your review answers and from clips you name, including
@@ -97,4 +98,19 @@ Studio has no analytics, no crash reporting and no accounts.
 
 ## Licence
 
-Code: Apache-2.0 ([LICENSE](LICENSE)). The models have their own licences; see [NOTICE](NOTICE).
+Studio's code is Apache-2.0 ([LICENSE](LICENSE)), with one exception.
+
+| Part | Licence |
+|---|---|
+| Studio's code (everything outside `crates/batdetect2`) | Apache-2.0 |
+| `crates/batdetect2`, Studio's translation of BatDetect2's processing | CC BY-NC 4.0, non-commercial use only ([its LICENSE](crates/batdetect2/LICENSE), [NOTICE](crates/batdetect2/NOTICE)) |
+| Perch 2.0 model | Apache-2.0 |
+| BirdNET 2.4 model | CC BY-NC-SA 4.0, non-commercial use only |
+| BatDetect2 UK model | CC BY-NC 4.0, non-commercial use only. Not hosted by Wildlife Network |
+| SpeciesNet model | Apache-2.0 |
+| MegaDetector v6 MIT | MIT code, CC BY 4.0 weights |
+
+The BatDetect2 part keeps BatDetect2's licence at the request of its authors, because it is a direct translation of
+their code. The installers include it, so the bat feature of Studio is for non-commercial use only. [NOTICE](NOTICE),
+the app's Credits and licences window and every export say who made each model and how to cite it. Permissions from
+model authors are recorded in [docs/PERMISSIONS.md](docs/PERMISSIONS.md).

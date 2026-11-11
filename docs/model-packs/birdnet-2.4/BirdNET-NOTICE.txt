@@ -1,0 +1,15 @@
+BirdNET V2.4, as packaged for Wildlife Network Studio
+
+BirdNET is by the K. Lisa Yang Center for Conservation Bioacoustics at the Cornell Lab of Ornithology and Chemnitz
+University of Technology. https://github.com/birdnet-team/BirdNET-Analyzer
+
+These files are BirdNET V2.4 converted to the ONNX format Studio loads (the network and the location model), with
+the spectrogram constants and species labels taken from the official model. They are offered with the permission
+of the BirdNET team (Stefan Kahl, email of 11 November 2026) for research and conservation.
+
+Licence: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0). See
+BirdNET-LICENSE.txt. Non-commercial use only. The licence of these files is not changed by Studio's own licence.
+
+Please cite:
+Kahl, S., Wood, C. M., Eibl, M. and Klinck, H. (2021). BirdNET: A deep learning solution for avian diversity
+monitoring. Ecological Informatics 61, 101236. https://doi.org/10.1016/j.ecoinf.2021.101236

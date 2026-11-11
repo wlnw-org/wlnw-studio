@@ -1,31 +1,37 @@
 Wildlife Network Studio
 Copyright 2026 Arun Rajiah and contributors. Licensed under the Apache License, Version 2.0 (see LICENSE).
 
-The source code in this repository is Apache-2.0. The machine-learning models Studio runs are separate works under
-their own licences. They are not stored in this repository; Studio downloads them, or you add them yourself:
+The source code in this repository is Apache-2.0, except the folder crates/batdetect2, which is a translation of
+BatDetect2's processing and is licensed CC BY-NC 4.0 like BatDetect2 itself (see crates/batdetect2/LICENSE and
+crates/batdetect2/NOTICE). The machine-learning models Studio runs are separate works under their own licences. They
+are not stored in this repository; Studio downloads them, or you add them yourself:
 
 - Perch 2.0, by Google. Apache License 2.0. Downloaded on first use from a pinned ONNX conversion by Justin Chu
   (huggingface.co/justinchuby/Perch-onnx; copy at huggingface.co/Calotriton/perch-v2-onnx), checked by SHA-256.
   Cite: van Merrienboer et al. (2025), Perch 2.0: The Bittern Lesson for Bioacoustics, arXiv:2508.04665.
 - BirdNET V2.4, by the K. Lisa Yang Center for Conservation Bioacoustics (Cornell Lab of Ornithology) and Chemnitz
-  University of Technology. CC BY-NC-SA 4.0: non-commercial use only. Not distributed with Studio; users who have the
-  model files can add them. Cite: Kahl et al. (2021), Ecological Informatics 61, doi:10.1016/j.ecoinf.2021.101236.
+  University of Technology (github.com/birdnet-team/BirdNET-Analyzer). CC BY-NC-SA 4.0: non-commercial use only. Studio
+  uses an ONNX conversion, packaged with the BirdNET team's permission for research and conservation (Stefan Kahl, email
+  of 11 November 2026, see docs/PERMISSIONS.md); the licence of the model files is unchanged. Cite: Kahl et al. (2021),
+  BirdNET: A deep learning solution for avian diversity monitoring, Ecological Informatics 61, 101236,
+  doi:10.1016/j.ecoinf.2021.101236.
 
 - BatDetect2 (UK model), by Oisin Mac Aodha, Santiago Martinez Balvanera and contributors
-  (github.com/macaodha/batdetect2). CC BY-NC 4.0: non-commercial use only. Not distributed with Studio; users make the
-  ONNX files from the published checkpoint with spike/batdetect2_export.py and add them. Studio's spectrogram, resampling
-  and call decoding (crates/engine/src/batdetect.rs) reproduce BatDetect2's published method so its results match.
+  (github.com/macaodha/batdetect2). CC BY-NC 4.0: non-commercial use only. Not distributed or hosted by Wildlife Network,
+  at the authors' request: users make the ONNX files from the official batdetect2 package with
+  crates/batdetect2/python/export_model.py and add them. Studio's spectrogram, resampling, network run and call decoding
+  (crates/batdetect2, CC BY-NC 4.0) reproduce BatDetect2's published method so its results match.
   Cite: Mac Aodha et al. (2022), Towards a General Approach for Bat Echolocation Detection and Classification,
   bioRxiv, doi:10.1101/2022.12.14.520490.
 
 - SpeciesNet v4.0.3a ("always crop" classifier, taxonomy and geofence files), by Google (github.com/google/cameratrapai,
-  kaggle.com/models/google/speciesnet). Apache License 2.0. Not distributed with Studio; users make the ONNX file with
-  spike/speciesnet_export.py and add it. Studio's ensemble rules and geofencing (crates/engine/src/camtrap.rs) reproduce
+  kaggle.com/models/google/speciesnet). Apache License 2.0. Downloaded in the app from an ONNX conversion on this
+  repository's models-speciesnet-4.0.3a pre-release (made with spike/speciesnet_export.py), checked by SHA-256. Studio's ensemble rules and geofencing (crates/engine/src/camtrap.rs) reproduce
   the speciesnet package's. Cite: Gadot et al. (2024), To crop or not to crop: Comparing whole-image and cropped
   classification on a large dataset of camera trap images, IET Computer Vision, doi:10.1049/cvi2.12318.
 - MegaDetector v6 MIT (MDV6-mit-yolov9-c), by Microsoft AI for Good Lab (Pytorch-Wildlife, github.com/microsoft/CameraTraps,
   MIT code), trained with the MIT-licensed YOLO code of MultimediaTechLab; weights from Zenodo record 15398270, CC BY 4.0.
-  Not distributed with Studio (made into ONNX by spike/speciesnet_export.py). Cite: Hernandez et al. (2024),
+  Downloaded with the SpeciesNet pack (made into ONNX by spike/speciesnet_export.py). Cite: Hernandez et al. (2024),
   Pytorch-Wildlife: A Collaborative Deep Learning Framework for Conservation, arXiv:2405.12930.
 - JPEG decoding uses mozjpeg (libjpeg-turbo's decoder). This software is based in part on the work of the Independent
   JPEG Group. libjpeg-turbo is under the IJG licence, the Modified (3-clause) BSD Licence and the zlib Licence.
