@@ -59,10 +59,18 @@ jobs:
 
       - name: System libraries (Linux)
         if: matrix.target == 'linux-x64'
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf \
-            libssl-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev build-essential file libfuse2t64
+          # The runner's Azure Ubuntu mirror has stalled for an hour or failed DNS (v0.1.14). Retry each download, and if the
+          # install still fails, switch to archive.ubuntu.com and try once more.
+          pkgs="libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf libssl-dev libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev build-essential file libfuse2t64"
+          apt_opts="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          install() { sudo apt-get $apt_opts update && sudo apt-get $apt_opts install -y --no-install-recommends $pkgs; }
+          if ! timeout 600 bash -c "$(declare -f install); pkgs='$pkgs' apt_opts='$apt_opts' install"; then
+            echo "::warning::Ubuntu mirror failed, switching to archive.ubuntu.com"
+            echo "http://archive.ubuntu.com/ubuntu/" | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+            install
+          fi
 
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
