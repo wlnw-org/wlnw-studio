@@ -1,7 +1,8 @@
 # Makes Studio's BatDetect2 pack: the default UK network (batdetect2==2.0.0b3, checkpoint batdetect2_uk_same.ckpt) in
 # ONNX, plus the constants (batdetect2.json) and labels (labels.txt). The output is a derivative of CC BY-NC 4.0 weights:
-# non-commercial use only, credit the authors. See docs/SPIKE.md.
-# Usage: python -I batdetect2_export.py <out dir> [audio files to check the ONNX network against PyTorch]
+# non-commercial use only, credit the authors. Wildlife Network does not host the result: each user makes it from the
+# official package (pip install batdetect2==2.0.0b3 onnx). See ../NOTICE and docs/SPIKE.md.
+# Usage: python -I export_model.py <out dir> [audio files to check the ONNX network against PyTorch]
 import sys, json, os
 import numpy as np, torch
 from batdetect2.api_v2 import BatDetect2API

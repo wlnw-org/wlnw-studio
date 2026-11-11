@@ -5913,6 +5913,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
+name = "wlnw-batdetect2"
+version = "0.1.12"
+dependencies = [
+ "anyhow",
+ "ort",
+ "rayon",
+ "realfft",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "wlnw-engine"
 version = "0.1.12"
 dependencies = [
@@ -5940,6 +5952,7 @@ dependencies = [
  "thiserror 2.0.21",
  "ureq 2.12.1",
  "walkdir",
+ "wlnw-batdetect2",
  "zip 2.6.1",
 ]
 

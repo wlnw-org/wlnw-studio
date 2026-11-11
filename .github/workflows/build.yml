@@ -154,7 +154,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Engine tests
-        run: cargo test --release -p wlnw-engine
+        run: cargo test --release -p wlnw-engine -p wlnw-batdetect2
 
       # Windows signing: Tauri calls app/scripts/sign-windows.mjs for the app and each installer. The certificate comes from
       # secrets (WINDOWS_PFX_BASE64 + WINDOWS_PFX_PASSWORD, or the ESIGNER_* set); without one the build stays unsigned.

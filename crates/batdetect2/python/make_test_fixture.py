@@ -1,7 +1,7 @@
-# Preprocessing fixture for Studio's Rust tests (crates/engine/src/batdetect.rs): a synthetic 0.5 s clip (a chirp plus
+# Preprocessing fixture for Studio's Rust tests (crates/batdetect2/src/lib.rs): a synthetic 0.5 s clip (a chirp plus
 # LCG noise, rebuilt identically in Rust) through BatDetect2's own preprocessor, sampled at every 997th value of each
 # stage, and its first 1,000 samples through BatDetect2's resampler from common bat detector rates.
-# Usage: python -I batdetect2_preprocess.py batdetect2_preprocess.json (in a venv with batdetect2==2.0.0b3)
+# Usage: python -I make_test_fixture.py ../tests/fixtures/batdetect2_preprocess.json (in a venv with batdetect2==2.0.0b3)
 import sys, json, math
 import numpy as np, torch
 from batdetect2.api_v2 import BatDetect2API

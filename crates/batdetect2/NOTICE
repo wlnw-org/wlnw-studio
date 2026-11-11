@@ -1,0 +1,27 @@
+Wildlife Network Studio: BatDetect2 component (crates/batdetect2)
+
+This folder contains a Rust translation of the processing in BatDetect2, by Oisin Mac Aodha, Santiago Martinez
+Balvanera and contributors: https://github.com/macaodha/batdetect2
+
+It reproduces BatDetect2's published method (spectrogram, PCEN, resizing, running the network and decoding calls)
+so that Studio's results match BatDetect2's. Because it is a direct translation of their code, this folder is
+licensed under the Creative Commons Attribution-NonCommercial 4.0 International licence (CC BY-NC 4.0), the same
+licence as BatDetect2, at the request of BatDetect2's authors (Oisin Mac Aodha, email of 9 November 2026). See LICENSE.
+It may not be used for commercial purposes. The rest of Wildlife Network Studio is licensed under Apache-2.0.
+
+What is in this folder:
+- src/lib.rs: BatDetect2's spectrogram, network run and call decoding.
+- src/resample.rs: scipy.signal.resample_poly as BatDetect2 calls it. The resampling method is from SciPy
+  (https://scipy.org, BSD 3-Clause licence).
+- python/export_model.py: turns the official BatDetect2 UK checkpoint into the ONNX file Studio loads. It installs
+  nothing itself; it uses the official batdetect2 Python package from PyPI.
+- python/make_test_fixture.py and tests/fixtures: reference values from BatDetect2's own Python code, used by the tests.
+
+The BatDetect2 model itself is not in this repository and is not hosted by Wildlife Network. It is published only
+by its authors, in the batdetect2 package (https://pypi.org/project/batdetect2/ and the GitHub repository above).
+
+Please cite:
+Mac Aodha, O., Martinez Balvanera, S., Damstra, E., Cooke, M., Eichinski, P., Browning, E., Barataud, M.,
+Boughey, K., Coles, R., Giacomini, G., MacSwiney G., M. C., K. Obrist, M., Parsons, S., Sattler, T. and Jones, K. E.
+(2022). Towards a General Approach for Bat Echolocation Detection and Classification. bioRxiv.
+https://doi.org/10.1101/2022.12.14.520490
