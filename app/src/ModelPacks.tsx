@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api, fmtBytes, type CatalogItem, type DownloadEvent } from "./api";
 import { useT } from "./i18n";
+import { CreditLine } from "./Credits";
 
 /** The models on this computer: download Perch on first run, add BirdNET's files from a folder, see what is installed. */
 export default function ModelPacks({ onChange, onError }: { onChange: () => void; onError: (e: string) => void }) {
@@ -41,6 +42,7 @@ export default function ModelPacks({ onChange, onError }: { onChange: () => void
               <div className="pack-text">
                 <b>{m.name}</b> <small className="muted">{t("licence")} <a href={m.licence_url} target="_blank" rel="noreferrer">{m.licence}</a></small>
                 <small className="block muted">{m.description}</small>
+                <CreditLine model={m.id} />
                 {!m.downloadable && !m.installed && <small className="block warn">{m.note}</small>}
                 {(m.downloading || p) && <div className="bar slim"><div style={{ width: `${pct}%` }} /></div>}
               </div>

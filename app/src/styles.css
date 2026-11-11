@@ -201,3 +201,7 @@ nav.secondary .step { padding-left: 42px; }
 .update-banner b { display: block; } .update-banner small { color: var(--muted); } .update-banner small.error { color: var(--bad); }
 .help-links { gap: 20px; justify-content: center; margin-top: 8px; }
 .share-setting { margin-top: 12px; display: grid; gap: 6px; }
+
+.modal-card.credits { max-height: 85vh; overflow-y: auto; }
+.modal-card.credits .credit { border-top: 1px solid var(--line, rgba(127,127,127,0.25)); padding-top: 10px; margin-top: 10px; }
+.modal-card.credits h3 { margin: 0 0 4px; }

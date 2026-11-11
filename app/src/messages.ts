@@ -2,6 +2,14 @@
 // Keep {placeholders} as they are. Product and model names, file formats and species names stay untranslated.
 
 const fr: Record<string, string> = {
+  "Credits and licences": "Crédits et licences",
+  "By {by}.": "Par {by}.",
+  "Paper": "Article",
+  "Source": "Source",
+  "Studio's own code is free and open source under the Apache 2.0 licence.": "Le code de Studio est libre et open source, sous licence Apache 2.0.",
+  "The part of Studio that reproduces BatDetect2 is under BatDetect2's own licence, CC BY-NC 4.0, so it is for non-commercial use only.": "La partie de Studio qui reproduit BatDetect2 est sous la licence de BatDetect2, CC BY-NC 4.0, et réservée à un usage non commercial.",
+  "Each model keeps its own licence, listed below. Exports name the model and its paper, so please cite them too.": "Chaque modèle garde sa propre licence, indiquée ci-dessous. Les exports citent le modèle et son article : merci de les citer aussi.",
+  "Map tiles in the place picker come from OpenFreeMap, with data from OpenStreetMap contributors.": "Les fonds de carte du choix du lieu viennent d'OpenFreeMap, avec les données des contributeurs d'OpenStreetMap.",
   // App shell
   "New project": "Nouveau projet",
   "Field season": "Saison de terrain",
@@ -454,6 +462,14 @@ const fr: Record<string, string> = {
 };
 
 const pt: Record<string, string> = {
+  "Credits and licences": "Créditos e licenças",
+  "By {by}.": "Por {by}.",
+  "Paper": "Artigo",
+  "Source": "Fonte",
+  "Studio's own code is free and open source under the Apache 2.0 licence.": "O código do Studio é livre e de código aberto, sob a licença Apache 2.0.",
+  "The part of Studio that reproduces BatDetect2 is under BatDetect2's own licence, CC BY-NC 4.0, so it is for non-commercial use only.": "A parte do Studio que reproduz o BatDetect2 está sob a licença do próprio BatDetect2, CC BY-NC 4.0, e é só para uso não comercial.",
+  "Each model keeps its own licence, listed below. Exports name the model and its paper, so please cite them too.": "Cada modelo mantém a sua própria licença, indicada abaixo. As exportações indicam o modelo e o seu artigo, por isso cite-os também.",
+  "Map tiles in the place picker come from OpenFreeMap, with data from OpenStreetMap contributors.": "Os mapas da escolha do local vêm do OpenFreeMap, com dados dos colaboradores do OpenStreetMap.",
   // App shell
   "New project": "Novo projeto",
   "Field season": "Temporada de campo",

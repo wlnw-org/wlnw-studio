@@ -11,6 +11,7 @@ import History from "./screens/History";
 import { OnlineSetting } from "./Online";
 import Images from "./screens/Images";
 import { ErrorHelp, FeedbackLink, HelpLink, ScreenHelp } from "./Feedback";
+import { CreditsLink } from "./Credits";
 import { useT } from "./i18n";
 
 type Step = "recordings" | "process" | "review" | "images" | "publish" | "files" | "history";
@@ -91,7 +92,7 @@ export default function App() {
           )}
           {error && <p className="error">{error} <ErrorHelp /></p>}
           <OnlineSetting />
-          <div className="row help-links"><HelpLink /><FeedbackLink /></div>
+          <div className="row help-links"><HelpLink /><FeedbackLink /><CreditsLink /></div>
         </div>
       </main>
     );
@@ -123,6 +124,7 @@ export default function App() {
         <OnlineSetting />
         <HelpLink />
         <FeedbackLink />
+        <CreditsLink />
         <button className="link small" onClick={() => { setSummary(null); setLive(null); }}>{t("Close project")}</button>
       </aside>
       <main className="content">

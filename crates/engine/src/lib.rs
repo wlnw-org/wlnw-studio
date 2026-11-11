@@ -4,6 +4,7 @@ pub mod audio;
 pub mod batdetect;
 pub mod birdnet;
 pub mod camtrap;
+pub mod credits;
 pub mod download;
 pub mod export;
 pub mod files;

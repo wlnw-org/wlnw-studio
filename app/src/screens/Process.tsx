@@ -1,4 +1,5 @@
 import { api, fmtBytes, fmtDuration, fmtHours, modelName, type Progress, type Summary } from "../api";
+import { CreditLine } from "../Credits";
 import ModelPacks from "../ModelPacks";
 import { useT } from "../i18n";
 
@@ -48,7 +49,8 @@ export default function Process({ summary, live, refresh, onError, next, showFil
                 <small>{m.id === "perch-2.0" ? t("About 15,000 species of birds, frogs, insects and mammals. Needed for the Wildlife Network Classifier.")
                   : m.id === "batdetect2-uk" ? t("17 UK bat species, call by call, in ultrasonic recordings (192 kHz and above, or time expanded). Non-commercial use only.")
                   : t("About 6,500 species, mostly birds, filtered by place and week.")}
-                  {" "}{t("About {x}x real time on a recent laptop.", { x: Math.round(m.speed_x) })} {t("Licence:")} <a href={m.licence_url} target="_blank" rel="noreferrer">{m.licence}</a>.</small></span>
+                  {" "}{t("About {x}x real time on a recent laptop.", { x: Math.round(m.speed_x) })} {t("Licence:")} <a href={m.licence_url} target="_blank" rel="noreferrer">{m.licence}</a>.</small>
+                <CreditLine model={m.id} /></span>
             </label>
           ))}
         </div>

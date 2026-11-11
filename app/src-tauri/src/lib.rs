@@ -56,6 +56,10 @@ fn have(app: &tauri::AppHandle) -> Vec<String> { models(app).0.iter().map(|m| m.
 #[derive(Serialize)]
 struct CatalogItem { #[serde(flatten)] pack: download::Pack, installed: bool, downloading: bool, size: u64 }
 
+/// Who made each model, its licence and how to cite it (Credits and licences screen, and next to each model).
+#[tauri::command]
+fn credits() -> Vec<wlnw_engine::credits::Credit> { wlnw_engine::credits::CREDITS.to_vec() }
+
 #[tauri::command]
 fn model_catalog(app: tauri::AppHandle) -> Vec<CatalogItem> {
     let dirs = model_dirs(&app);
@@ -581,7 +585,7 @@ pub fn run() {
             if let Some(f) = std::env::args().skip(1).find(|x| x.ends_with(".wlnw") && Path::new(x).exists()) { *a.project.lock().unwrap() = Some(PathBuf::from(f)); }
             a
         })
-        .invoke_handler(tauri::generate_handler![open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
+        .invoke_handler(tauri::generate_handler![credits, open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
             species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
             list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
             online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,
