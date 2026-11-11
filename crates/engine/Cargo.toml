@@ -33,6 +33,8 @@ symphonia = { version = "0.5", features = ["wav", "flac", "pcm", "mp3"] }
 thiserror = "2.0.21"
 ureq = { version = "2", features = ["json"] }
 walkdir = "2.5.0"
+# BatDetect2 processing lives in its own crate because it is CC BY-NC 4.0, not Apache-2.0 (see crates/batdetect2).
+wlnw-batdetect2 = { path = "../batdetect2" }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

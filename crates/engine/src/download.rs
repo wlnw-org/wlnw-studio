@@ -44,9 +44,25 @@ pub const CATALOG: &[Pack] = &[
         id: "birdnet-2.4", name: "BirdNET 2.4",
         description: "The Cornell Lab and Chemnitz University's bird model: about 6,500 species, filtered by place and week. Fast.",
         licence: "CC-BY-NC-SA-4.0", licence_url: "https://creativecommons.org/licenses/by-nc-sa/4.0/", dir: "",
-        files: &[],
+        // Studio's ONNX conversion of BirdNET 2.4, packaged with the BirdNET team's permission (Stefan Kahl, email of 11 Nov 2026,
+        // docs/PERMISSIONS.md), for the wlnw-studio "models-birdnet-2.4" pre-release with its licence and notice
+        // (docs/model-packs/birdnet-2.4). `downloadable` stays false until that release is published: the files and checksums
+        // below are the ones already used by every Studio that has BirdNET, so adding them by hand keeps working the same.
+        // The BirdNET team agreed to the converted files being distributed (email of 11 Nov 2026), so only the upload is left.
+        files: &[
+            PackFile { name: "birdnet_v24_cnn.onnx", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/birdnet_v24_cnn.onnx"], sha256: "66aec7585e42831bf628968380c8f285936610c0910b87890cadb411bdfa7f4c", size: 51_101_259 },
+            PackFile { name: "birdnet_v24_meta.onnx", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/birdnet_v24_meta.onnx"], sha256: "022831060cd6904b42d0e826cc17b5cc6d9697fb521e8d10446d9076d7a78b0a", size: 29_525_525 },
+            PackFile { name: "w1.f32", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/w1.f32"], sha256: "e689f7ccf093a825f8c6252e583e432911bd546aa2ae18c9381b891addb455ec", size: 8_192 },
+            PackFile { name: "w2.f32", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/w2.f32"], sha256: "4a80fad778afac0a915dbe252979e9bc65fc8b89925e6b77cded5be3df173903", size: 4_096 },
+            PackFile { name: "M1.f32", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/M1.f32"], sha256: "f9ed152d0484df13c15a28715c6b6a960df97fa48ba0f68eb0f536160bad9e55", size: 393_600 },
+            PackFile { name: "M2.f32", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/M2.f32"], sha256: "927b924d2d8f4d0d42c461813b8b63b752ec04776b10506a593e0754db279a51", size: 196_992 },
+            PackFile { name: "mel.json", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/mel.json"], sha256: "6e9badb1415c161cb0a5c0670d126d55d22eaaf78bfa87540f0c28e861c713e5", size: 116 },
+            PackFile { name: "labels.txt", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/labels.txt"], sha256: "7399780d6743a806d79857f3dea16d8be2ecbd44b745f7e378555bdb7742e685", size: 266_261 },
+            PackFile { name: "BirdNET-LICENSE.txt", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/BirdNET-LICENSE.txt"], sha256: "e66c269d4819aaab34b49ef5220c4ddab6756f21bb5180761a4eb8561f2b7bbd", size: 20_850 },
+            PackFile { name: "BirdNET-NOTICE.txt", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/BirdNET-NOTICE.txt"], sha256: "12ae7acae43630802d6c6b1092e19e830d5f95c90f44bcb138e1c0af05b4b629", size: 998 },
+        ],
         downloadable: false,
-        note: "Not downloadable yet: we have asked the BirdNET team for permission to distribute it. If you have the Studio BirdNET files, add them from a folder.",
+        note: "One-click download coming soon. If you have the Studio BirdNET files, add them from a folder.",
     },
     Pack {
         id: "batdetect2-uk", name: "BatDetect2 (UK bats)",
@@ -54,7 +70,7 @@ pub const CATALOG: &[Pack] = &[
         licence: "CC-BY-NC-4.0", licence_url: "https://creativecommons.org/licenses/by-nc/4.0/", dir: "batdetect2",
         files: &[],
         downloadable: false,
-        note: "Not downloadable yet: BatDetect2 is for non-commercial use only and no converted copy is published. Make the three files with spike/batdetect2_export.py (see docs/SPIKE.md), then add them from a folder.",
+        note: "BatDetect2's authors publish the model only in their own package, so Wildlife Network does not host a copy. Make the three files from the official package with crates/batdetect2/python/export_model.py (see the guide on wlnw.org/help), then add them from a folder. Non-commercial use only.",
     },
     Pack {
         id: "speciesnet-4.0.3a", name: "SpeciesNet (camera traps)",
@@ -76,7 +92,8 @@ pub const CATALOG: &[Pack] = &[
     },
 ];
 
-/// Files that must be present for a pack to count as installed (BirdNET and BatDetect2 have no download list yet, so their files are named here).
+/// Files that must be present for a pack to count as installed (BatDetect2 has no download list, and BirdNET's licence and notice
+/// files are not required, so a BirdNET added by hand still counts).
 pub fn required(pack: &Pack) -> Vec<&'static str> {
     match pack.id {
         "birdnet-2.4" => vec!["birdnet_v24_cnn.onnx", "birdnet_v24_meta.onnx", "w1.f32", "w2.f32", "M1.f32", "M2.f32", "mel.json", "labels.txt"],

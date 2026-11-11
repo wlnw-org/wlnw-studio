@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/engine", "app/src-tauri"]
+members = ["crates/engine", "crates/batdetect2", "app/src-tauri"]
 exclude = ["spike"]
 
 [workspace.package]

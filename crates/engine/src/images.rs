@@ -511,6 +511,9 @@ pub fn camtrapdp(p: &Project, dir: &Path) -> Result<CamtrapReport> {
         "mediatype": "text/csv", "encoding": "utf-8", "schema": schema(name) });
     let mut contributors: Vec<serde_json::Value> = info.people.iter().map(|n| serde_json::json!({ "title": n, "role": "contributor" })).collect();
     if contributors.is_empty() { contributors.push(serde_json::json!({ "title": info.institution.clone().unwrap_or_else(|| "Wildlife Network Studio user".into()), "role": "rightsHolder" })); }
+    // The models that named the animals, with the citations their authors ask for.
+    let sources: Vec<serde_json::Value> = ["speciesnet", "megadetector"].iter().filter_map(|m| crate::credits::for_model(m))
+        .map(|c| serde_json::json!({ "title": c.citation, "path": c.paper_url })).collect();
     let pkg = serde_json::json!({
         "profile": "https://raw.githubusercontent.com/tdwg/camtrap-dp/1.0.1/camtrap-dp-profile.json",
         "name": ds.to_ascii_lowercase().replace(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_' && c != '.', "-"),
@@ -520,6 +523,7 @@ pub fn camtrapdp(p: &Project, dir: &Path) -> Result<CamtrapReport> {
         "created": chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
         "contributors": contributors,
         "licenses": [lic("data"), lic("media")],
+        "sources": sources,
         "project": { "title": info.title, "samplingDesign": "opportunistic", "captureMethod": ["activityDetection"], "individualAnimals": false, "observationLevel": ["media"] },
         "spatial": { "type": "Polygon", "bbox": [x0, y0, x1, y1], "coordinates": [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] },
         "temporal": { "start": t_min.as_deref().map(|t| &t[..10]), "end": t_max.as_deref().map(|t| &t[..10]) },
@@ -598,12 +602,16 @@ mod tests {
         let csv_out = dir.join("all.csv");
         assert_eq!(crate::export::csv(&p, &csv_out).unwrap(), 3);
         let csv = std::fs::read_to_string(&csv_out).unwrap();
-        assert!(csv.lines().next().unwrap().ends_with(",media,bbox_x,bbox_y,bbox_width,bbox_height"));
+        assert!(csv.lines().next().unwrap().ends_with(",media,bbox_x,bbox_y,bbox_width,bbox_height,model_reference"));
+        // Every image row cites SpeciesNet and MegaDetector.
+        assert!(csv.lines().filter(|l| l.contains(",image,")).all(|l| l.contains("https://doi.org/10.1049/cvi2.12318") && l.contains("arXiv:2405.12930")));
         assert_eq!(csv.lines().filter(|l| l.contains(",image,")).count(), 3);
         assert!(csv.contains("/c/a.jpg,,,2026-01-02T00:04:05Z,Panthera leo,lion,SpeciesNet 4.0.3a,0.9500,") && !csv.contains("b.jpg"));
         let out = dir.join("dp");
         let r = camtrapdp(&p, &out).unwrap();
         assert_eq!((r.media, r.left_out_people, r.left_out_no_time_or_place, r.deployments), (3, 1, 1, 1));
+        let dp = std::fs::read_to_string(out.join("datapackage.json")).unwrap();
+        assert!(dp.contains("\"sources\"") && dp.contains("https://doi.org/10.1049/cvi2.12318"));
         let obs = std::fs::read_to_string(out.join("observations.csv")).unwrap();
         assert!(obs.contains(",animal,,Panthera leo,1,") && obs.contains(",vehicle,") && obs.contains(",blank,"));
         assert!(!obs.contains("Felidae"));

@@ -42,7 +42,11 @@ export interface OnlineArrival { region: string | null; week: string; low: strin
 export interface SpeciesInfo { status: OnlineStatus; records: number | null; group: string | null; arrival: OnlineArrival | null; title: string | null; line: string | null; image: string | null; credit: string | null; url: string }
 export interface Around { deployment_id: number; species: number | null; more: boolean; areas: { name: string; kind: string | null; km: number }[] }
 
+/** A model's makers, licence and citation (crates/engine/src/credits.rs). */
+export interface Credit { id: string; name: string; by: string; licence: string; licence_url: string; citation: string; paper_url: string; source_url: string; note: string }
+
 export const api = {
+  credits: () => invoke<Credit[]>("credits"),
   onlineEnabled: () => invoke<boolean>("online_enabled"),
   setOnlineEnabled: (on: boolean) => invoke<void>("set_online_enabled", { on }),
   onlinePrefetch: () => invoke<void>("online_prefetch"),

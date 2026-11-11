@@ -29,9 +29,9 @@ const LICENSE_URL: &[(&str, &str)] = &[
 ];
 fn license_url(l: &str) -> &'static str { LICENSE_URL.iter().find(|(k, _)| *k == l).map_or(LICENSE_URL[1].1, |x| x.1) }
 fn utc(d: &Detection) -> String { d.utc.map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default() }
-/// The model's name as written in exports ("BirdNET 2.4", "Perch 2.0", "Wildlife Network Classifier").
+/// The model's name as written in exports ("BirdNET 2.4", "Perch 2.0", "BatDetect2 UK", "Wildlife Network Classifier").
 pub fn model_name(id: &str) -> String {
-    match id { "birdnet-2.4" => "BirdNET 2.4".into(), "perch-2.0" => "Perch 2.0".into(), x if x.starts_with("wnc") => "Wildlife Network Classifier".into(),
+    match id { "birdnet-2.4" => "BirdNET 2.4".into(), "perch-2.0" => "Perch 2.0".into(), "batdetect2-uk" => "BatDetect2 UK".into(), x if x.starts_with("wnc") => "Wildlife Network Classifier".into(),
         // Imported results: the tool's name with no space, so WDX's classifier name/version split keeps it whole.
         "import:birdnet-analyzer" => "BirdNET-Analyzer".into(), "import:birdnet-pi" => "BirdNET-Pi/BirdNET-Go".into(), "import:kaleidoscope" => "Kaleidoscope".into(), x => x.into() }
 }
@@ -56,6 +56,12 @@ pub fn basis_text(b: &Basis) -> String {
     } else { format!("default threshold {:.2} (species not reviewed)", b.threshold) }
 }
 
+/// The citations for camera-trap results: SpeciesNet names the animal on MegaDetector's box.
+fn image_reference() -> String { format!("{} | {}", crate::credits::reference("speciesnet"), crate::credits::reference("megadetector")) }
+
+/// Writes CITATION.txt (who made the models in these results and how to cite them) at `path`.
+fn write_citation(path: &Path, models: &[&str]) -> Result<()> { std::fs::write(path, crate::credits::citation_file(models))?; Ok(()) }
+
 pub const STUDIO: &str = concat!("Wildlife Network Studio ", env!("CARGO_PKG_VERSION"));
 
 fn status(d: &Detection) -> &'static str { if d.verdict.as_deref() == Some("yes") { "verified by expert" } else { "unverified" } }
@@ -63,21 +69,21 @@ fn status(d: &Detection) -> &'static str { if d.verdict.as_deref() == Some("yes"
 pub fn csv(p: &Project, out: &Path) -> Result<usize> {
     let rows = p.accepted()?;
     let mut f = std::io::BufWriter::new(std::fs::File::create(out)?);
-    writeln!(f, "site,latitude,longitude,file,start_s,end_s,utc,scientific_name,common_name,model,confidence,review,threshold,threshold_basis,reviewed_clips,estimated_precision,software,media,bbox_x,bbox_y,bbox_width,bbox_height")?;
+    writeln!(f, "site,latitude,longitude,file,start_s,end_s,utc,scientific_name,common_name,model,confidence,review,threshold,threshold_basis,reviewed_clips,estimated_precision,software,media,bbox_x,bbox_y,bbox_width,bbox_height,model_reference")?;
     let mut cache: std::collections::HashMap<(i64, String), Basis> = std::collections::HashMap::new();
     for d in &rows {
         let b = cache.entry((d.label, d.model.clone())).or_insert_with(|| basis(p, d.label, &d.model));
-        writeln!(f, "{},{},{},{},{:.1},{:.1},{},{},{},{},{:.4},{},{:.4},{},{},{},{},audio,,,,", q(&d.site), d.lat.map_or(String::new(), |v| v.to_string()), d.lon.map_or(String::new(), |v| v.to_string()),
+        writeln!(f, "{},{},{},{},{:.1},{:.1},{},{},{},{},{:.4},{},{:.4},{},{},{},{},audio,,,,,{}", q(&d.site), d.lat.map_or(String::new(), |v| v.to_string()), d.lon.map_or(String::new(), |v| v.to_string()),
             q(&d.path), d.start_s, d.end_s, utc(d), q(&d.scientific), q(&d.common), model_name(&d.model), d.confidence, d.verdict.as_deref().unwrap_or(""),
-            b.threshold, if b.fitted { "fitted" } else { "default" }, b.reviewed, b.precision.map(|x| format!("{x:.3}")).unwrap_or_default(), STUDIO)?;
+            b.threshold, if b.fitted { "fitted" } else { "default" }, b.reviewed, b.precision.map(|x| format!("{x:.3}")).unwrap_or_default(), STUDIO, q(crate::credits::reference(&d.model)))?;
     }
     // Camera-trap photos: one row per accepted animal box (people never), so a photo-only project still gets a useful CSV.
     let boxes = crate::images::accepted(p)?;
     for o in &boxes {
         let (name, ver) = crate::images::model_label(&o.model);
-        writeln!(f, "{},{},{},{},,,{},{},{},{},{:.4},{},,,,,{},image,{:.4},{:.4},{:.4},{:.4}", q(&o.site), o.lat.map_or(String::new(), |v| v.to_string()), o.lon.map_or(String::new(), |v| v.to_string()),
+        writeln!(f, "{},{},{},{},,,{},{},{},{},{:.4},{},,,,,{},image,{:.4},{:.4},{:.4},{:.4},{}", q(&o.site), o.lat.map_or(String::new(), |v| v.to_string()), o.lon.map_or(String::new(), |v| v.to_string()),
             q(&o.path), o.utc.map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default(), q(&o.scientific), q(&o.common), q(&format!("{name} {ver}")),
-            o.score, o.verdict.as_deref().unwrap_or(""), STUDIO, o.bbox[0], o.bbox[1], o.bbox[2], o.bbox[3])?;
+            o.score, o.verdict.as_deref().unwrap_or(""), STUDIO, o.bbox[0], o.bbox[1], o.bbox[2], o.bbox[3], q(&image_reference()))?;
     }
     Ok(rows.len() + boxes.len())
 }
@@ -98,6 +104,8 @@ pub fn raven_audacity(p: &Project, dir: &Path) -> Result<usize> {
             writeln!(a, "{:.1}\t{:.1}\t{} ({:.2})", d.start_s, d.end_s, if d.common.is_empty() { &d.scientific } else { &d.common }, d.confidence)?;
         }
     }
+    // Raven and Audacity tables have no place for credits: they go in a CITATION.txt next to them.
+    if !rows.is_empty() { write_citation(&dir.join("CITATION.txt"), &rows.iter().map(|d| d.model.as_str()).collect::<Vec<_>>())?; }
     Ok(rows.len())
 }
 
@@ -112,6 +120,11 @@ pub fn kaleidoscope(p: &Project, out: &Path) -> Result<usize> {
         let file = path.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
         writeln!(f, "{},{},{:.2},{:.2},{},{:.4},{}", q(&folder), q(&file), d.start_s, d.end_s - d.start_s, q(&d.scientific), d.confidence,
             if d.verdict.as_deref() == Some("yes") { q(&d.scientific) } else { String::new() })?;
+    }
+    // id.csv has no place for credits: they go in "<file name>.CITATION.txt" next to it.
+    if !rows.is_empty() {
+        let name = out.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "id.csv".into());
+        write_citation(&out.with_file_name(format!("{name}.CITATION.txt")), &rows.iter().map(|d| d.model.as_str()).collect::<Vec<_>>())?;
     }
     Ok(rows.len())
 }
@@ -130,7 +143,8 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
             "eventEnd": (t + chrono::Duration::milliseconds(((d.end_s - d.start_s) * 1000.0) as i64)).format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             "deployment": { "deploymentId": format!("{}:{}", ds, d.deployment_id), "name": d.site, "latitude": d.lat, "longitude": d.lon, "sensorType": "acoustic-recorder" },
             "detection": { "scientificName": d.scientific, "vernacularName": d.common, "taxonRank": "species", "confidence": (d.confidence * 10000.0).round() / 10000.0,
-                "classifier": { "name": model_name(&d.model).rsplit_once(' ').map_or(model_name(&d.model), |x| x.0.to_string()), "version": model_name(&d.model).rsplit_once(' ').map_or(String::new(), |x| x.1.to_string()) } },
+                "classifier": { "name": model_name(&d.model).rsplit_once(' ').map_or(model_name(&d.model), |x| x.0.to_string()), "version": model_name(&d.model).rsplit_once(' ').map_or(String::new(), |x| x.1.to_string()),
+                    "reference": crate::credits::for_model(&d.model).map(|c| c.paper_url) } },
             "media": { "mediaType": "audio", "fileName": Path::new(&d.path).file_name().map(|n| n.to_string_lossy().to_string()), "startOffsetSeconds": d.start_s, "durationSeconds": d.end_s - d.start_s },
             "review": { "status": if d.verdict.as_deref() == Some("yes") { "confirmed" } else { "unreviewed" } },
             "source": { "system": "wlnw-studio", "systemVersion": env!("CARGO_PKG_VERSION"), "sourceRecordId": d.id.to_string() },
@@ -152,7 +166,7 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
             "eventStart": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(), "eventEnd": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             "deployment": { "deploymentId": format!("{}:{}", ds, o.deployment_id), "name": o.site, "latitude": lat, "longitude": lon, "sensorType": "camera-trap" },
             "detection": { "scientificName": o.scientific, "vernacularName": o.common, "taxonRank": rank, "individualCount": 1,
-                "confidence": (o.score * 10000.0).round() / 10000.0, "classifier": { "name": name, "version": ver },
+                "confidence": (o.score * 10000.0).round() / 10000.0, "classifier": { "name": name, "version": ver, "reference": crate::credits::reference("speciesnet").rsplit(' ').next() },
                 "pipeline": [{ "role": "detector", "name": "MegaDetector", "version": "6 MIT YOLOv9" }, { "role": "classifier", "name": name, "version": ver }] },
             "media": { "mediaType": "image", "fileName": Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()),
                 "region": { "type": "box", "units": "normalized", "coordinates": o.bbox.iter().map(|v| (v * 10000.0).round() / 10000.0).collect::<Vec<_>>(),
@@ -175,7 +189,7 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
     let ds = p.setting("dataset_id")?.unwrap_or_else(|| "wlnw-studio".into());
     let cols = ["occurrenceID", "basisOfRecord", "eventDate", "scientificName", "vernacularName", "decimalLatitude", "decimalLongitude",
         "coordinateUncertaintyInMeters", "locationID", "recordedBy", "institutionCode", "datasetName", "license", "identifiedBy",
-        "identificationVerificationStatus", "identificationRemarks", "associatedMedia", "occurrenceStatus"];
+        "identificationVerificationStatus", "identificationRemarks", "associatedMedia", "occurrenceStatus", "identificationReferences"];
     let images = crate::images::accepted(p)?;
     let has_images = !images.is_empty();
     // Taxon rank and counts only matter for camera-trap rows (sound rows stay as they were when there are none).
@@ -194,7 +208,7 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
             format!("{} score {:.4}; {}; clip {:.1} to {:.1} s; {STUDIO}", model_name(&d.model), d.confidence,
                 if d.verdict.as_deref() == Some("yes") { "confirmed by a reviewer".to_string() } else { basis_text(cache.entry((d.label, d.model.clone())).or_insert_with(|| basis(p, d.label, &d.model))) },
                 d.start_s, d.end_s),
-            Path::new(&d.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "present".into()];
+            Path::new(&d.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "present".into(), crate::credits::reference(&d.model).into()];
         let mut line = line.to_vec();
         if has_images { line.extend(["species".to_string(), String::new()]); }
         occ.push_str(&line.iter().map(|v| tsv(v)).collect::<Vec<_>>().join("\t"));
@@ -210,7 +224,7 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
             format!("{name} {ver} with MegaDetector v6{}", if o.verdict.as_deref() == Some("yes") { " | confirmed by reviewer" } else { "" }),
             if o.verdict.as_deref() == Some("yes") { "verified by expert" } else { "unverified" }.into(),
             format!("camera trap image; score {:.4}", o.score), Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "present".into(),
-            o.rank.clone(), count.to_string()];
+            image_reference(), o.rank.clone(), count.to_string()];
         occ.push_str(&line.iter().map(|v| tsv(v)).collect::<Vec<_>>().join("\t"));
         occ.push('\n');
         n += 1;
@@ -219,7 +233,12 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
     let meta = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<archive xmlns=\"http://rs.tdwg.org/dwc/text/\" metadata=\"eml.xml\">\n  <core encoding=\"UTF-8\" fieldsTerminatedBy=\"\\t\" linesTerminatedBy=\"\\n\" fieldsEnclosedBy=\"\" ignoreHeaderLines=\"1\" rowType=\"http://rs.tdwg.org/dwc/terms/Occurrence\">\n    <files><location>occurrence.txt</location></files>\n    <id index=\"0\"/>\n{fields}  </core>\n</archive>\n");
     let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;");
     let creators: String = i.people.iter().map(|p| format!("    <creator><individualName><surName>{}</surName></individualName></creator>\n", esc(p))).collect();
-    let eml = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<eml:eml xmlns:eml=\"https://eml.ecoinformatics.org/eml-2.2.0\" packageId=\"{}\" system=\"wlnw-studio\">\n  <dataset>\n    <title>{}</title>\n{creators}{}    <abstract><para>{}</para></abstract>\n    <intellectualRights><para>{}</para></intellectualRights>\n    <methods><methodStep><description><para>Automatic identification in Wildlife Network Studio {} ({}); per-species thresholds fitted from expert review where reviewed.</para></description></methodStep></methods>\n  </dataset>\n</eml:eml>\n",
+    // One method step per model with the citation its authors ask for.
+    let mut used: Vec<&str> = rows.iter().map(|d| d.model.as_str()).collect();
+    if has_images { used.extend(["speciesnet", "megadetector"]); }
+    let cites: String = crate::credits::CREDITS.iter().filter(|c| used.iter().any(|m| crate::credits::for_model(m).is_some_and(|x| x.id == c.id)))
+        .map(|c| format!("<methodStep><description><para>{} by {}, licence {}. Cite {}</para></description></methodStep>", esc(c.name), esc(c.by), esc(c.licence), esc(c.citation))).collect();
+    let eml = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<eml:eml xmlns:eml=\"https://eml.ecoinformatics.org/eml-2.2.0\" packageId=\"{}\" system=\"wlnw-studio\">\n  <dataset>\n    <title>{}</title>\n{creators}{}    <abstract><para>{}</para></abstract>\n    <intellectualRights><para>{}</para></intellectualRights>\n    <methods><methodStep><description><para>Automatic identification in Wildlife Network Studio {} ({}); per-species thresholds fitted from expert review where reviewed.</para></description></methodStep>{cites}</methods>\n  </dataset>\n</eml:eml>\n",
         esc(&ds), esc(&i.title), i.institution.as_ref().map(|x| format!("    <organization>{}</organization>\n", esc(x))).unwrap_or_default(), esc(i.description.as_deref().unwrap_or("")), license_url(&i.license), env!("CARGO_PKG_VERSION"), { let mut m: Vec<String> = rows.iter().map(|d| model_name(&d.model)).collect(); if has_images { m.push("SpeciesNet 4.0.3a with MegaDetector v6 MIT".into()); } m.sort(); m.dedup(); m.join(", ") });
     let mut z = zip::ZipWriter::new(std::fs::File::create(out)?);
     let o = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
@@ -234,6 +253,38 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Bat detections are credited to BatDetect2 (paper and repository) in every export that holds them.
+    #[test]
+    fn bat_exports_cite_batdetect2() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Project::open(&dir.path().join("t.wlnw")).unwrap();
+        p.db.execute_batch("INSERT INTO deployments (id, name, folder, serial, lat, lon) VALUES (1, 'Pond', '/a', 'A', 51.5, -0.1);
+            INSERT INTO files (id, deployment_id, path, start_local, duration_s) VALUES (1, 1, '/a/bat.wav', '2026-06-01 22:00:00', 60);
+            INSERT INTO file_models (file_id, model, status, processed_at) VALUES (1, 'batdetect2-uk', 'done', '');
+            INSERT INTO species (id, scientific, common) VALUES (1, 'Pipistrellus pipistrellus', 'Common Pipistrelle');
+            INSERT INTO detections (file_id, model, start_s, end_s, species, confidence, in_range) VALUES (1, 'batdetect2-uk', 1.2, 1.25, 1, 0.95, 1);").unwrap();
+        let doi = "https://doi.org/10.1101/2022.12.14.520490";
+        let d = dir.path();
+        assert_eq!(csv(&p, &d.join("all.csv")).unwrap(), 1);
+        let c = std::fs::read_to_string(d.join("all.csv")).unwrap();
+        assert!(c.lines().next().unwrap().ends_with(",model_reference") && c.contains(",BatDetect2 UK,") && c.contains(doi));
+        raven_audacity(&p, &d.join("raven")).unwrap();
+        let cite = std::fs::read_to_string(d.join("raven/CITATION.txt")).unwrap();
+        assert!(cite.contains(doi) && cite.contains("https://github.com/macaodha/batdetect2") && cite.contains("CC BY-NC 4.0"));
+        kaleidoscope(&p, &d.join("id.csv")).unwrap();
+        assert!(std::fs::read_to_string(d.join("id.csv.CITATION.txt")).unwrap().contains(doi));
+        wdx(&p, &d.join("out.wdx")).unwrap();
+        let w = std::fs::read_to_string(d.join("out.wdx")).unwrap();
+        assert!(w.contains("\"name\":\"BatDetect2\"") && w.contains(doi));
+        dwca(&p, &d.join("dwca.zip")).unwrap();
+        let mut z = zip::ZipArchive::new(std::fs::File::open(d.join("dwca.zip")).unwrap()).unwrap();
+        let mut read = |n: &str| { let mut s = String::new(); std::io::Read::read_to_string(&mut z.by_name(n).unwrap(), &mut s).unwrap(); s };
+        let (occ, meta, eml) = (read("occurrence.txt"), read("meta.xml"), read("eml.xml"));
+        assert!(occ.lines().next().unwrap().contains("identificationReferences") && occ.contains(doi));
+        assert!(meta.contains("dwc/terms/identificationReferences"));
+        assert!(eml.contains("BatDetect2 (UK model) by Oisin Mac Aodha") && eml.contains(doi));
+    }
     #[test]
     fn basis_wording() {
         assert_eq!(basis_text(&Basis { threshold: 0.62, fitted: true, reviewed: 14, precision: Some(0.931) }),
