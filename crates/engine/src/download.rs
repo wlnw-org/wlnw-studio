@@ -48,6 +48,7 @@ pub const CATALOG: &[Pack] = &[
         // docs/PERMISSIONS.md), for the wlnw-studio "models-birdnet-2.4" pre-release with its licence and notice
         // (docs/model-packs/birdnet-2.4). `downloadable` stays false until that release is published: the files and checksums
         // below are the ones already used by every Studio that has BirdNET, so adding them by hand keeps working the same.
+        // The BirdNET team agreed to the converted files being distributed (email of 11 Nov 2026), so only the upload is left.
         files: &[
             PackFile { name: "birdnet_v24_cnn.onnx", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/birdnet_v24_cnn.onnx"], sha256: "66aec7585e42831bf628968380c8f285936610c0910b87890cadb411bdfa7f4c", size: 51_101_259 },
             PackFile { name: "birdnet_v24_meta.onnx", urls: &["https://github.com/wlnw-org/wlnw-studio/releases/download/models-birdnet-2.4/birdnet_v24_meta.onnx"], sha256: "022831060cd6904b42d0e826cc17b5cc6d9697fb521e8d10446d9076d7a78b0a", size: 29_525_525 },

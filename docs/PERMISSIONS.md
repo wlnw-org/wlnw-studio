@@ -14,9 +14,12 @@ Email of 11 November 2026 to Arun Rajiah.
   for Conservation Bioacoustics are credited in the app and in exports.
 - He suggested moving to BirdNET 3.0. Not done yet, because it is still a preview release.
 
-Open question to confirm with the BirdNET team before publishing the one-click download: that hosting Studio's ONNX
-conversion (rather than the original TFLite files) is covered, and whether the model licence is CC BY-NC-SA 4.0 (their
-README) or CC BY-NC 4.0 (their Zenodo record).
+Arun's request of 7 November asked whether we may distribute the converted ONNX files and the spectrogram constants
+taken from the model, under the same licence and with attribution, either with the app or as a download. Stefan
+answered "Yes, feel free to do that", so offering Studio's ONNX conversion as a download is covered.
+
+Still open (asked on 11 November 2026): whether the model licence to show is CC BY-NC-SA 4.0 (their README) or
+CC BY-NC 4.0 (their Zenodo record). Studio shows CC BY-NC-SA 4.0 until then.
 
 ## BatDetect2 (Oisin Mac Aodha, University of Edinburgh)
 
