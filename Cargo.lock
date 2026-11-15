@@ -5906,7 +5906,7 @@ dependencies = [
 
 [[package]]
 name = "wlnw-engine"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -5938,7 +5938,7 @@ dependencies = [
 
 [[package]]
 name = "wlnw-studio"
-version = "0.1.14"
+version = "0.1.15"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
