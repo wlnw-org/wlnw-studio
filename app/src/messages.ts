@@ -288,6 +288,11 @@ const fr: Record<string, string> = {
   "Sent {sent}: {added} added, {dupes} already there, {left} left out by the site (name not recognised or below the dataset's cut-off).": "{sent} envoyées : {added} ajoutées, {dupes} déjà présentes, {left} écartées par le site (nom non reconnu ou sous le seuil du jeu de données).",
   "Sent {sent}: {added} added, {dupes} already there.": "{sent} envoyées : {added} ajoutées, {dupes} déjà présentes.",
   "The dataset is live.": "Le jeu de données est en ligne.",
+  "{n} accepted detections were not sent because their recorder or camera has no place, or the file has no time. Set them on the Recordings screen and send again.": "{n} détections acceptées n'ont pas été envoyées : leur enregistreur ou leur caméra n'a pas de lieu, ou le fichier n'a pas d'heure. Renseignez-les dans l'écran Enregistrements et envoyez de nouveau.",
+  "The records went, but the title and credits could not be updated: {e}": "Les données sont parties, mais le titre et les crédits n'ont pas pu être mis à jour : {e}",
+  "Open the dataset on wlnw.org": "Ouvrir le jeu de données sur wlnw.org",
+  "Records count in the weekly totals on species and place pages once the dataset is live, not on the live map.": "Une fois le jeu de données en ligne, les données comptent dans les totaux hebdomadaires des pages d'espèces et de lieux, pas sur la carte en direct.",
+  "Download a model below (Perch is the one to start with) to begin.": "Téléchargez un modèle ci-dessous (Perch est le bon point de départ) pour commencer.",
   "Submitted: a reviewer will look at it.": "Soumis : un relecteur va l'examiner.",
 
   // Recordings
@@ -748,6 +753,11 @@ const pt: Record<string, string> = {
   "Sent {sent}: {added} added, {dupes} already there, {left} left out by the site (name not recognised or below the dataset's cut-off).": "{sent} enviados: {added} adicionados, {dupes} já existentes, {left} deixados de fora pelo site (nome não reconhecido ou abaixo do corte do conjunto de dados).",
   "Sent {sent}: {added} added, {dupes} already there.": "{sent} enviados: {added} adicionados, {dupes} já existentes.",
   "The dataset is live.": "O conjunto de dados está publicado.",
+  "{n} accepted detections were not sent because their recorder or camera has no place, or the file has no time. Set them on the Recordings screen and send again.": "{n} deteções aceites não foram enviadas porque o gravador ou a câmara não tem local, ou o ficheiro não tem hora. Defina-os no ecrã Gravações e envie de novo.",
+  "The records went, but the title and credits could not be updated: {e}": "Os registos foram enviados, mas o título e os créditos não puderam ser atualizados: {e}",
+  "Open the dataset on wlnw.org": "Abrir o conjunto de dados em wlnw.org",
+  "Records count in the weekly totals on species and place pages once the dataset is live, not on the live map.": "Quando o conjunto de dados estiver publicado, os registos contam nos totais semanais das páginas de espécies e de locais, não no mapa em direto.",
+  "Download a model below (Perch is the one to start with) to begin.": "Descarregue um modelo abaixo (Perch é o melhor para começar) para começar.",
   "Submitted: a reviewer will look at it.": "Submetido: um revisor vai analisá-lo.",
 
   // Recordings

@@ -18,7 +18,7 @@ export interface ImageSpeciesRow { label: number; model: string; scientific: str
 export interface ImageBox { id: number; model: string; kind: "animal" | "human" | "vehicle" | "blank" | "unknown"; category: string; conf: number; bbox: [number, number, number, number]; species: number | null; scientific: string; common: string; score: number; source: string; verdict: string | null; top: [string, number][] }
 export interface ImageItem { id: number; path: string; deployment_id: number; site: string; taken_local: string | null; utc: string | null; width: number | null; height: number | null; lat: number | null; lon: number | null; boxes: ImageBox[]; focus: number | null }
 export interface ImageQuery { species?: number | null; model?: string | null; show?: string | null; offset?: number; limit?: number }
-export interface PublishReport { sent: number; added: number; duplicates: number; left_out: number; status: string | null }
+export interface PublishReport { sent: number; added: number; duplicates: number; left_out: number; status: string | null; no_place_or_time: number; details_error: string | null }
 
 export interface ImportReport { rows: number; matched: number; added: number; unmatched: number; unmatched_examples: string[]; no_species: number; unknown_names: string[]; tables: number; model: string }
 export interface LoadReport { reviewer: string; answers: number; matched: number; unmatched: number }
@@ -70,6 +70,7 @@ export const api = {
   scanFolder: (folder: string) => invoke<ScanReport>("scan_folder", { folder }),
   updateDeployment: (id: number, name: string, lat: number | null, lon: number | null, tzHours: number) => invoke<void>("update_deployment", { id, name, lat, lon, tzHours }),
   setSetting: (key: string, value: string) => invoke<void>("set_setting", { key, value }),
+  publishedDataset: () => invoke<string | null>("published_dataset"),
   startRun: () => invoke<void>("start_run"),
   stopRun: () => invoke<void>("stop_run"),
   species: () => invoke<SpeciesRow[]>("species"),

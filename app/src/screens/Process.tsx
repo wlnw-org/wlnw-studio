@@ -30,6 +30,7 @@ export default function Process({ summary, live, refresh, onError, next, showFil
           : <button className="primary" onClick={start} disabled={summary.models.length === 0 || left <= 0}>{p.jobs_done > 0 && left > 0 ? t("Resume") : t("Start")}</button>}
       </header>
       {summary.model_errors.map((e) => <p key={e} className="note">{e}</p>)}
+      {summary.models.length === 0 && !summary.running && <p className="note">{t("Download a model below (Perch is the one to start with) to begin.")}</p>}
       {!summary.space.enough && left > 0 && <p className="warn card">{t("Perch saves a fingerprint of every 5 seconds of audio next to the project, for \"find more like this\" and the Wildlife Network Classifier. The recordings still to process need about {needed}, but the disk with the project has only {free} free. Free some space or save the project on a bigger disk (it can sit apart from the recordings). Processing stops by itself if less than 1 GB is left.", { needed: fmtBytes(summary.space.needed), free: fmtBytes(summary.space.free ?? 0) })}</p>}
       <ModelPacks onChange={refresh} onError={onError} />
 
