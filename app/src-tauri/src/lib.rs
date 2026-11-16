@@ -203,6 +203,10 @@ fn set_setting(key: String, value: String, s: State<App>) -> R<()> {
     open(&s)?.set_setting(&key, &value).map_err(err)
 }
 
+/// The Wildlife Network dataset this project was last published to (pre-fills the Publish screen; the key is never stored).
+#[tauri::command]
+fn published_dataset(s: State<App>) -> R<Option<String>> { open(&s)?.setting("dataset_id").map_err(err) }
+
 #[tauri::command]
 fn start_run(app: tauri::AppHandle, s: State<App>) -> R<()> {
     let m = models(&app);
@@ -499,7 +503,7 @@ fn share_now(app: tauri::AppHandle, s: State<App>) -> R<()> {
     std::thread::spawn(move || {
         let r = Project::open(&file).map_err(err).and_then(|p| share::sync(&p, &key, &share::http_post).map_err(err));
         SHARING.store(false, Ordering::SeqCst);
-        let msg = match r { Ok(share::Outcome::Sent(n)) => (n > 0).then(|| format!("Shared {n} checked answers.")), Ok(share::Outcome::Paused(m)) => Some(m), Err(_) => None };
+        let msg = match r { Ok(share::Outcome::Sent(n)) => (n > 0).then(|| format!("Shared {n} checked answers.")), Ok(share::Outcome::Paused(m)) => Some(m), Err(e) => Some(format!("Sharing will try again later: {e}")) };
         let _ = app.emit("share-done", msg);
     });
     Ok(())
@@ -585,7 +589,7 @@ pub fn run() {
             if let Some(f) = std::env::args().skip(1).find(|x| x.ends_with(".wlnw") && Path::new(x).exists()) { *a.project.lock().unwrap() = Some(PathBuf::from(f)); }
             a
         })
-        .invoke_handler(tauri::generate_handler![credits, open_project, summary, scan_folder, update_deployment, set_setting, start_run, stop_run,
+        .invoke_handler(tauri::generate_handler![credits, open_project, summary, scan_folder, update_deployment, set_setting, published_dataset, start_run, stop_run,
             species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
             list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
             online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,

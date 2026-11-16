@@ -20,6 +20,8 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
   const [report, setReport] = useState<PublishReport | null>(null);
 
   useEffect(() => { const un = listen<[number, number]>("publish-progress", (e) => setSent(e.payload)); return () => { un.then((f) => f()); }; }, []);
+  // The dataset this project went to last time; the upload key is never kept.
+  useEffect(() => { api.publishedDataset().then((id) => { if (id) setDataset((d) => d || id); }).catch(() => {}); }, []);
 
   const set = (patch: Partial<DatasetInfo>) => { setInfo({ ...info, ...patch }); setSaved(false); };
   async function saveInfo() { try { await api.setSetting("dataset", JSON.stringify(info)); setSaved(true); refresh(); } catch (e) { onError(String(e)); } }
@@ -94,7 +96,11 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
         {report && <p className="note">{report.left_out
           ? t("Sent {sent}: {added} added, {dupes} already there, {left} left out by the site (name not recognised or below the dataset's cut-off).", { sent: report.sent.toLocaleString(), added: report.added.toLocaleString(), dupes: report.duplicates.toLocaleString(), left: report.left_out.toLocaleString() })
           : t("Sent {sent}: {added} added, {dupes} already there.", { sent: report.sent.toLocaleString(), added: report.added.toLocaleString(), dupes: report.duplicates.toLocaleString() })}
-          {report.status === "live" && " " + t("The dataset is live.")}{report.status === "review" && " " + t("Submitted: a reviewer will look at it.")}</p>}
+          {report.status === "live" && " " + t("The dataset is live.")}{report.status === "review" && " " + t("Submitted: a reviewer will look at it.")}
+          {report.no_place_or_time > 0 && <><br />{t("{n} accepted detections were not sent because their recorder or camera has no place, or the file has no time. Set them on the Recordings screen and send again.", { n: report.no_place_or_time.toLocaleString() })}</>}
+          {report.details_error && <><br />{t("The records went, but the title and credits could not be updated: {e}", { e: report.details_error })}</>}
+          <br /><button className="link inline" onClick={() => openUrl(`https://wlnw.org/datasets/${encodeURIComponent(dataset)}`)}>{t("Open the dataset on wlnw.org")}</button>{" "}
+          <span className="muted">{t("Records count in the weekly totals on species and place pages once the dataset is live, not on the live map.")}</span></p>}
       </div>
     </section>
   );
