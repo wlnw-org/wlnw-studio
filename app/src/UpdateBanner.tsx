@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { ask } from "@tauri-apps/plugin-dialog";
+import { api } from "./api";
 import { useT } from "./i18n";
 
 // Checks the latest GitHub release once on startup (not in dev). Quiet: no network or no update shows nothing.
@@ -22,6 +24,13 @@ export default function UpdateBanner() {
 
   async function install() {
     if (!update) return;
+    // Restarting stops a run mid-file: say so first and pause it cleanly (it carries on after the restart).
+    const running = await api.summary().then((s) => s.running).catch(() => false);
+    if (running) {
+      const ok = await ask(t("Studio is finding species right now. Installing restarts Studio: the run pauses after the current file and carries on after the restart. Install now?"), { title: t("Install and restart"), kind: "warning" });
+      if (!ok) return;
+      await api.stopRun().catch(() => {});
+    }
     setState("downloading"); setError(null);
     let total = 0, got = 0;
     try {
