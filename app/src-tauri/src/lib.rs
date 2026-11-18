@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use wlnw_engine::models::{self, Classifier, ModelInfo};
-use wlnw_engine::{agreement, camtrap, download, export, import, files, history, images, occupancy, online, publish, review, run, scan, share, store::Project, wnc};
+use wlnw_engine::{agreement, camtrap, download, export, import, files, live, history, images, occupancy, online, publish, review, run, scan, share, store::Project, wnc};
 
 #[derive(Default)]
 struct App {
@@ -241,8 +241,12 @@ struct ClipOut { wav: String, spec: String, width: usize, height: usize, offset_
 
 /// `model`: the detection's model, so bat detections get an ultrasonic, slowed-down clip.
 #[tauri::command]
-async fn clip(file: String, start_s: f64, end_s: f64, model: Option<String>) -> R<ClipOut> {
+async fn clip(file: String, start_s: f64, end_s: f64, model: Option<String>, s: State<'_, App>) -> R<ClipOut> {
+    let project = crate::path(&s).ok();
     tauri::async_runtime::spawn_blocking(move || {
+        // A live station's clip is fetched from the station the first time it is played, then kept with the project; the whole clip is the detection.
+        let live = match &project { Some(f) => live::ensure_clip(&Project::open(f).map_err(err)?, &file).map_err(err)?, None => None };
+        let (start_s, end_s) = match live { Some(d) => (0.0, d), None => (start_s, end_s) };
         let c = review::clip_for(Path::new(&file), start_s, end_s, model.as_deref()).map_err(err)?;
         let b = base64::engine::general_purpose::STANDARD;
         Ok(ClipOut { wav: b.encode(&c.wav), spec: b.encode(&c.spec), width: c.width, height: c.height, offset_s: c.offset_s, window_s: c.window_s, total_s: c.total_s, max_khz: c.max_khz,
@@ -379,6 +383,35 @@ async fn import_results(app: tauri::AppHandle, path: String, s: State<'_, App>) 
         r.map_err(err)
     }).await.map_err(err)?
 }
+
+/// Detections from a live station (Wildlife Network Base or BirdNET-Go on the same network) for a period of station-local dates.
+#[tauri::command]
+async fn live_import(address: String, from: String, to: String, s: State<'_, App>) -> R<live::LiveReport> {
+    let file = crate::path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        let t = history::now(&p);
+        let r = live::import(&p, &address, &from, &to);
+        history::log(&p, "import", &t, &r, live::summary, "Import from a live station failed");
+        r.map_err(err)
+    }).await.map_err(err)?
+}
+
+/// New detections from a station imported before, since the newest one already in the project.
+#[tauri::command]
+async fn live_refresh(key: String, s: State<'_, App>) -> R<live::LiveReport> {
+    let file = crate::path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        let t = history::now(&p);
+        let r = live::refresh(&p, &key);
+        history::log(&p, "import", &t, &r, live::summary, "Refresh from a live station failed");
+        r.map_err(err)
+    }).await.map_err(err)?
+}
+
+#[tauri::command]
+fn live_stations(s: State<App>) -> R<Vec<live::Station>> { live::stations(&open(&s)?).map_err(err) }
 
 #[tauri::command]
 fn answers_export(out: String, reviewer: Option<String>, s: State<App>) -> R<usize> {
@@ -591,7 +624,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![credits, open_project, summary, scan_folder, update_deployment, set_setting, published_dataset, start_run, stop_run,
             species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
-            list_files, export_file_list, retry_failed, history_list, import_results, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
+            list_files, export_file_list, retry_failed, history_list, import_results, live_import, live_refresh, live_stations, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
             online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,
             set_deployment_country, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
         .run(tauri::generate_context!())

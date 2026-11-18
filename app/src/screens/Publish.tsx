@@ -97,6 +97,7 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
           ? t("Sent {sent}: {added} added, {dupes} already there, {left} left out by the site (name not recognised or below the dataset's cut-off).", { sent: report.sent.toLocaleString(), added: report.added.toLocaleString(), dupes: report.duplicates.toLocaleString(), left: report.left_out.toLocaleString() })
           : t("Sent {sent}: {added} added, {dupes} already there.", { sent: report.sent.toLocaleString(), added: report.added.toLocaleString(), dupes: report.duplicates.toLocaleString() })}
           {report.status === "live" && " " + t("The dataset is live.")}{report.status === "review" && " " + t("Submitted: a reviewer will look at it.")}
+          {report.from_base > 0 && <><br />{t("{n} detections came live from a Wildlife Network Base, which already shares them with Wildlife Network, so they were not sent again.", { n: report.from_base.toLocaleString() })}</>}
           {report.no_place_or_time > 0 && <><br />{t("{n} accepted detections were not sent because their recorder or camera has no place, or the file has no time. Set them on the Recordings screen and send again.", { n: report.no_place_or_time.toLocaleString() })}</>}
           {report.details_error && <><br />{t("The records went, but the title and credits could not be updated: {e}", { e: report.details_error })}</>}
           <br /><button className="link inline" onClick={() => openUrl(`https://wlnw.org/datasets/${encodeURIComponent(dataset)}`)}>{t("Open the dataset on wlnw.org")}</button>{" "}

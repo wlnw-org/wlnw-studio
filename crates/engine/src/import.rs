@@ -331,7 +331,7 @@ pub fn import(p: &Project, path: &Path, labels: &[Label]) -> Result<ImportReport
 
 /// "Kaleidoscope" for "import:kaleidoscope", for summaries.
 pub fn tool_name(model: &str) -> String {
-    model.split(", ").map(|m| match m { ANALYZER => "BirdNET-Analyzer", BIRDNET_PI => "BirdNET-Pi or BirdNET-Go", KALEIDOSCOPE => "Kaleidoscope", x => x }).collect::<Vec<_>>().join(" and ")
+    model.split(", ").map(|m| match m { ANALYZER => "BirdNET-Analyzer", BIRDNET_PI => "BirdNET-Pi or BirdNET-Go", KALEIDOSCOPE => "Kaleidoscope", crate::live::MODEL => "a live station", x => x }).collect::<Vec<_>>().join(" and ")
 }
 
 /// One line for History.

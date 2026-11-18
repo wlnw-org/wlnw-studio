@@ -39,6 +39,8 @@ pub fn plan(p: &Project, have: &[String]) -> Result<HashMap<i64, Vec<String>>> {
     let chosen: Vec<String> = p.chosen_models().into_iter().filter(|m| have.contains(m)).collect();
     let bats = have.iter().any(|h| h == crate::batdetect::ID);
     Ok(p.deployments()?.into_iter().map(|d| {
+        // A live station's clips come with the station's own detections; Studio's models do not run on them.
+        if d.folder.starts_with(crate::live::PREFIX) { return (d.id, vec![]); }
         let rate = if bats { recorder_rate(p, d.id) } else { None };
         let models = if chosen.is_empty() { default_models(d.lat, d.lon, rate, have) } else {
             let ultrasonic = rate.is_some_and(|r| r >= crate::batdetect::ULTRASONIC_RATE);

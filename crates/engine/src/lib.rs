@@ -11,6 +11,7 @@ pub mod files;
 pub mod history;
 pub mod images;
 pub mod import;
+pub mod live;
 pub mod meta;
 pub mod models;
 pub mod occupancy;
