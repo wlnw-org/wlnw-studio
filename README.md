@@ -85,15 +85,18 @@ SignPath Foundation); macOS releases are signed with the maintainer's Apple Deve
 
 ## Privacy
 
-Wildlife Network Studio will not transfer any information to other networked systems unless specifically requested by
-the user, apart from the update check below. Your recordings are processed on your own computer and are never uploaded.
-When it starts, the app asks GitHub (github.com) whether a newer version exists; that request carries no information about
-you or your recordings, and nothing is downloaded unless you click Install. Otherwise the app contacts other systems only
-when you ask it to:
+Your recordings and photos are processed on your own computer and are never uploaded. Studio contacts other systems in
+these cases only:
+- the update check: when it starts, the app asks wlnw.org (and GitHub as a fallback) whether a newer version exists. The
+  request carries the app version, operating system and processor type, which wlnw.org counts to know which builds are in
+  use; nothing about you or your recordings. Nothing is downloaded unless you click Install;
+- "Use Wildlife Network when online" (on by default, turn it off in Settings): Studio asks wlnw.org which species are
+  expected near each recorder, sending only the recorder's position rounded to about 10 km and the species names found,
+  so it can mark unusual or rare results;
 - downloading a model (Perch 2.0 from Hugging Face), when you click Download;
 - map tiles (OpenFreeMap) when you open the place picker;
-- Wildlife Network (wlnw.org), when you publish a dataset with its upload key; then the detections you chose to
-  publish are sent ([wlnw.org privacy policy](https://wlnw.org/privacy)).
+- Wildlife Network (wlnw.org), when you publish a dataset with its upload key or turn on sharing: then the detections you
+  chose to share are sent ([wlnw.org privacy policy](https://wlnw.org/privacy)).
 Studio has no analytics, no crash reporting and no accounts.
 
 ## Licence
