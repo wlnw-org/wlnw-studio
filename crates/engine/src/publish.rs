@@ -6,6 +6,8 @@ use serde::Serialize;
 
 pub const API: &str = "https://wlnw.org/api/v1/datasets";
 const CHUNK: usize = 2000;
+/** Records one dataset can hold on wlnw.org (DATASET_LIMITS.MAX_RECORDS in the site's src/lib/datasets.ts). */
+const MAX_RECORDS: usize = 300_000;
 
 #[derive(Debug, Default, Serialize)]
 pub struct PublishReport {
@@ -64,6 +66,10 @@ pub fn publish(p: &Project, dataset: &str, key: &str, submit: bool, mut on_progr
             "name": o.scientific, "confidence": o.score, "count": count,
             "file": std::path::Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()) }))
     }));
+    // The site holds up to MAX_RECORDS per dataset: stop before sending anything rather than failing halfway.
+    if rows.len() > MAX_RECORDS {
+        bail!("This project has {} records to send, more than the {} a Wildlife Network dataset can hold. Make a second dataset and publish part of the project to each (for example by recorder), or export a Darwin Core Archive instead.", rows.len(), MAX_RECORDS);
+    }
     let skipped = skipped_audio + (total_images - (rows.len() - before));
     let mut rep = PublishReport { sent: rows.len(), no_place_or_time: skipped, ..Default::default() };
     // Details first, so the dataset page shows the right title and credits. Not fatal: records still go.
