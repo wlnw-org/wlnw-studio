@@ -189,7 +189,9 @@ function Live({ refresh, onError, setReport }: { refresh: () => void; onError: (
         <thead><tr><th>{t("Station")}</th><th>{t("Address")}</th><th>{t("Newest day imported")}</th><th /></tr></thead>
         <tbody>{stations.map((s) => <tr key={s.key}>
           <td>{s.name}<small className="muted block">{s.kind === "base" ? "Wildlife Network Base" : "BirdNET-Go"}</small></td>
-          <td className="small">{s.address.replace(/^http:\/\//, "")}</td>
+          <td className="small">{s.address.replace(/^http:\/\//, "")}{s.kind === "base"
+            ? <small className="muted block">{t("Not published again: the Base already shares its detections with Wildlife Network.")}</small>
+            : <small className="muted block">{t("If this BirdNET-Go also sends to Wildlife Network (wdx-agent) or BirdWeather, publishing these would count them twice.")}</small>}</td>
           <td className="small">{s.last ?? ""}</td>
           <td><button onClick={() => run(s.key, () => api.liveRefresh(s.key))} disabled={!!busy} title={t("Adds the detections made since the newest one imported. Nothing is added twice.")}>{busy === s.key ? t("Reading the station...") : t("Refresh")}</button></td>
         </tr>)}</tbody>

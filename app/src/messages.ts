@@ -465,6 +465,9 @@ const fr: Record<string, string> = {
   "agreement-and-precision": "accord-et-precision",
   "Saved {n} species.": "{n} espèces enregistrées.",
   // Live stations
+  "{n} detections came live from a Wildlife Network Base, which already shares them with Wildlife Network, so they were not sent again.": "{n} détections venaient en direct d'une Wildlife Network Base, qui les partage déjà avec Wildlife Network : elles n'ont donc pas été envoyées une deuxième fois.",
+  "Not published again: the Base already shares its detections with Wildlife Network.": "Pas de nouvelle publication : la Base partage déjà ses détections avec Wildlife Network.",
+  "If this BirdNET-Go also sends to Wildlife Network (wdx-agent) or BirdWeather, publishing these would count them twice.": "Si ce BirdNET-Go envoie aussi ses données à Wildlife Network (wdx-agent) ou à BirdWeather, les publier les compterait deux fois.",
   "Live station (imported)": "Station en direct (importée)",
   "Live station": "Station en direct",
   "Live station: detections from the station": "Station en direct : détections de la station",
@@ -968,6 +971,9 @@ const pt: Record<string, string> = {
   "agreement-and-precision": "concordancia-e-precisao",
   "Saved {n} species.": "{n} espécies salvas.",
   // Live stations
+  "{n} detections came live from a Wildlife Network Base, which already shares them with Wildlife Network, so they were not sent again.": "{n} detecções vieram ao vivo de uma Wildlife Network Base, que já as compartilha com a Wildlife Network, por isso não foram enviadas de novo.",
+  "Not published again: the Base already shares its detections with Wildlife Network.": "Não são publicadas de novo: a Base já compartilha suas detecções com a Wildlife Network.",
+  "If this BirdNET-Go also sends to Wildlife Network (wdx-agent) or BirdWeather, publishing these would count them twice.": "Se este BirdNET-Go também envia para a Wildlife Network (wdx-agent) ou para o BirdWeather, publicá-las as contaria duas vezes.",
   "Live station (imported)": "Estação ao vivo (importada)",
   "Live station": "Estação ao vivo",
   "Live station: detections from the station": "Estação ao vivo: detecções da estação",

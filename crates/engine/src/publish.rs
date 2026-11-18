@@ -12,6 +12,8 @@ pub struct PublishReport {
     pub sent: usize, pub added: i64, pub duplicates: i64, pub left_out: i64, pub status: Option<String>,
     /// Accepted detections and images not sent because their recorder or camera has no place, or the file no time.
     pub no_place_or_time: usize,
+    /// Accepted detections not sent because they came live from a Wildlife Network Base, which already uploads them.
+    pub from_base: usize,
     /// Why the dataset details (title, people, licence) could not be updated on the site, if they could not.
     pub details_error: Option<String>,
 }
@@ -42,8 +44,20 @@ fn details_body(p: &Project) -> Option<serde_json::Value> {
         "license": v["license"], "people": people }))
 }
 
+/// Accepted detections to send, and how many were held back because they came live from a Wildlife Network Base: the Base
+/// already sends its detections to Wildlife Network, so publishing them again would count them twice. Live BirdNET-Go
+/// stations that are not a Base stay publishable. Exports are not affected.
+pub fn publishable(p: &Project, accepted: Vec<crate::store::Detection>) -> Result<(Vec<crate::store::Detection>, usize)> {
+    let mut st = p.db.prepare("SELECT id FROM deployments WHERE folder LIKE ?1")?;
+    let base: std::collections::HashSet<i64> = st.query_map([format!("{}base:%", crate::live::PREFIX)], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    let before = accepted.len();
+    let keep: Vec<_> = accepted.into_iter().filter(|d| !base.contains(&d.deployment_id)).collect();
+    let held = before - keep.len();
+    Ok((keep, held))
+}
+
 pub fn publish(p: &Project, dataset: &str, key: &str, submit: bool, mut on_progress: impl FnMut(usize, usize)) -> Result<PublishReport> {
-    let accepted = p.accepted()?;
+    let (accepted, from_base) = publishable(p, p.accepted()?)?;
     let total_audio = accepted.len();
     let rows: Vec<serde_json::Value> = accepted.into_iter().filter_map(|d| {
         let (t, lat, lon) = (d.utc?, d.lat?, d.lon?);
@@ -65,7 +79,7 @@ pub fn publish(p: &Project, dataset: &str, key: &str, submit: bool, mut on_progr
             "file": std::path::Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()) }))
     }));
     let skipped = skipped_audio + (total_images - (rows.len() - before));
-    let mut rep = PublishReport { sent: rows.len(), no_place_or_time: skipped, ..Default::default() };
+    let mut rep = PublishReport { sent: rows.len(), no_place_or_time: skipped, from_base, ..Default::default() };
     // Details first, so the dataset page shows the right title and credits. Not fatal: records still go.
     if let Some(body) = details_body(p) {
         if let Err(e) = post(dataset, key, body) { rep.details_error = Some(e.to_string()); }
@@ -83,4 +97,29 @@ pub fn publish(p: &Project, dataset: &str, key: &str, submit: bool, mut on_progr
     }
     p.set_setting("dataset_id", dataset)?;
     Ok(rep)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::live::{store, LiveReport, Row, Station};
+
+    #[test]
+    fn base_detections_are_never_published() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Project::open(&dir.path().join("P.wlnw")).unwrap();
+        let row = |id: &str| Row { id: id.into(), scientific: "Erithacus rubecula".into(), common: "European Robin".into(), confidence: 0.9,
+            local: chrono::NaiveDateTime::parse_from_str("2026-11-18 06:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), tz_offset_min: Some(0), clip_ext: Some("wav".into()) };
+        let station = |key: &str, kind: &str| Station { key: key.into(), kind: kind.into(), name: key.into(), address: "http://x".into(), api: "http://x:8080".into(),
+            lat: Some(51.5), lon: Some(-0.1), last: None, imported_at: None };
+        store(&p, &mut station("base:abc", "base"), &[row("1"), row("2")], &mut LiveReport::default()).unwrap();
+        store(&p, &mut station("bng:x:8080", "birdnet-go"), &[row("3")], &mut LiveReport::default()).unwrap();
+        let accepted = p.accepted().unwrap();
+        assert_eq!(accepted.len(), 3);
+        let (keep, held) = publishable(&p, accepted).unwrap();
+        assert_eq!((keep.len(), held), (1, 2));
+        assert_eq!(keep[0].site, "bng:x:8080");
+        // Exports still carry every accepted detection.
+        assert_eq!(p.accepted().unwrap().len(), 3);
+    }
 }
