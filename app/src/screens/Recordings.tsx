@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, fmtHours, modelName, modelTag, type Deployment, type Summary } from "../api";
+import { api, fmtHours, isLive, modelName, modelTag, type Deployment, type LiveReport, type LiveStation, type Summary } from "../api";
 import MapPicker from "../MapPicker";
 import { AroundRecorders, usePrefetch } from "../Online";
 import { t as tr, useT, type Vars } from "../i18n";
@@ -63,7 +63,10 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
       </header>
       {report && <p className="note">{report}</p>}
       {deps.length === 0 ? (
-        <div className="empty">{t("No recordings yet. Studio reads the time and place written by AudioMoth and Song Meter recorders, and the date in file names such as {example}.", { example: "SMM01234_20250601_053000.wav" })}</div>
+        <>
+          <div className="empty">{t("No recordings yet. Studio reads the time and place written by AudioMoth and Song Meter recorders, and the date in file names such as {example}.", { example: "SMM01234_20250601_053000.wav" })}</div>
+          <Live refresh={refresh} onError={onError} setReport={setReport} />
+        </>
       ) : (
         <>
           <p className="muted">{[count(deps.length, "{n} recorder", "{n} recorders"), t("{n} files", { n: deps.reduce((s, d) => s + d.files, 0).toLocaleString() }),
@@ -86,6 +89,7 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
               <button onClick={() => importResults(true)} disabled={busy}>{t("Import a folder of results")}</button>
             </div>
           </div>
+          <Live refresh={refresh} onError={onError} setReport={setReport} />
           <div className="foot"><button className="primary" onClick={next}>{t("Next: find species")}</button></div>
         </>
       )}
@@ -127,10 +131,69 @@ function Row({ d, cams, onSaved, onError }: { d: Deployment; cams: boolean; onSa
         {country.trim().toUpperCase() === "USA" && <input className="country" value={state} maxLength={2} onChange={(e) => setState(e.target.value)} placeholder={t("State")} aria-label={t("US state code")} />}
         {countryDirty && <button className="small-btn" onClick={saveCountry}>{t("Save")}</button>}
       </>}</td>}
-      <td className="small">{[...(d.files > 0 ? d.models.map(modelName) : []), ...(d.images > 0 ? ["SpeciesNet"] : [])].join(" + ") || t("none")}{d.perch_region && d.files > 0 && <small className="muted block">{t("Perch first in this region")}</small>}</td>
+      <td className="small">{isLive(d) ? t("Live station: detections from the station") : [...(d.files > 0 ? d.models.map(modelName) : []), ...(d.images > 0 ? ["SpeciesNet"] : [])].join(" + ") || t("none")}{d.perch_region && d.files > 0 && <small className="muted block">{t("Perch first in this region")}</small>}</td>
       <td>{dirty ? <button onClick={() => save()}>{t("Save")}</button> : saved ? <span className="ok">{t("Saved")}</span> : null}</td>
       {map && <MapPicker lat={d.lat} lon={d.lon} title={v.name} onClose={() => setMap(false)}
         onPick={(la, lo) => { const patch = { lat: String(la), lon: String(lo) }; setV({ ...v, ...patch }); setMap(false); save(patch); }} />}
     </tr>
+  );
+}
+
+const RECENT = "wlnw.liveStations";
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+function recentAddresses(): string[] {
+  try { const v = JSON.parse(localStorage.getItem(RECENT) ?? "[]"); return Array.isArray(v) ? v.filter((x) => typeof x === "string") : []; } catch { return []; }
+}
+function remember(address: string) {
+  try { localStorage.setItem(RECENT, JSON.stringify([address, ...recentAddresses().filter((a) => a !== address)].slice(0, 8))); } catch { /* storage unavailable */ }
+}
+
+/** Detections from a Wildlife Network Base or BirdNET-Go station on the same network, for review like other imported results. */
+function Live({ refresh, onError, setReport }: { refresh: () => void; onError: (e: string) => void; setReport: (r: string | null) => void }) {
+  const t = useT();
+  const [stations, setStations] = useState<LiveStation[]>([]);
+  const [address, setAddress] = useState("");
+  const [from, setFrom] = useState(() => ymd(new Date(Date.now() - 6 * 86400000)));
+  const [to, setTo] = useState(() => ymd(new Date()));
+  const [busy, setBusy] = useState<string | null>(null);
+  const load = () => api.liveStations().then(setStations).catch(() => {});
+  useEffect(() => { load(); }, []);
+  const recent = [...new Set([...stations.map((s) => s.address.replace(/^http:\/\//, "")), ...recentAddresses()])];
+  function said(r: LiveReport) {
+    setReport(count(r.added, "{n} new detection from {station} ({from} to {to}).", "{n} new detections from {station} ({from} to {to}).", { station: r.station, from: r.from, to: r.to }) +
+      (r.already ? " " + count(r.already, "{n} was already in the project.", "{n} were already in the project.") : "") +
+      (r.no_clip ? " " + count(r.no_clip, "{n} had no clip to listen to and was left out.", "{n} had no clip to listen to and were left out.") : "") +
+      (r.no_species ? " " + count(r.no_species, "{n} was not a species (noise, people, engines) and was left out.", "{n} were not a species (noise, people, engines) and were left out.") : "") +
+      (r.added ? " " + t("Review them on the Review screen. Each clip is fetched from the station the first time you play it.") : ""));
+  }
+  async function run(key: string, job: () => Promise<LiveReport>) {
+    setBusy(key); setReport(null);
+    try { said(await job()); refresh(); load(); } catch (e) { onError(t(String(e))); }
+    setBusy(null);
+  }
+  const add = () => { const a = address.trim(); if (!a) return; remember(a); run("new", () => api.liveImport(a, from, to)); };
+  return (
+    <div className="card import-card">
+      <h3>{t("Add a live station")}</h3>
+      <p className="muted">{t("Check the detections of a Wildlife Network Base or a BirdNET-Go station on the same network: Studio reads them, with their clips, into this project for review, export and publishing. Nothing is sent to the station.")}
+        {" "}{t("BirdNET-Pi has no stable read API, so it cannot be added live: copy its files and use Import results instead.")}</p>
+      <div className="row tight">
+        <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="192.168.1.20" list="live-recent" aria-label={t("Station address")} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <datalist id="live-recent">{recent.map((a) => <option key={a} value={a} />)}</datalist>
+        <label className="small">{t("From")} <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+        <label className="small">{t("To")} <input type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
+        <button onClick={add} disabled={!!busy || !address.trim()}>{busy === "new" ? t("Reading the station...") : t("Import detections")}</button>
+      </div>
+      <p className="muted small">{t("The address is the one you open in a browser on this network, for example 192.168.1.20 or wnbase.local. Dates are the station's own calendar days.")}</p>
+      {stations.length > 0 && <table className="grid">
+        <thead><tr><th>{t("Station")}</th><th>{t("Address")}</th><th>{t("Newest day imported")}</th><th /></tr></thead>
+        <tbody>{stations.map((s) => <tr key={s.key}>
+          <td>{s.name}<small className="muted block">{s.kind === "base" ? "Wildlife Network Base" : "BirdNET-Go"}</small></td>
+          <td className="small">{s.address.replace(/^http:\/\//, "")}</td>
+          <td className="small">{s.last ?? ""}</td>
+          <td><button onClick={() => run(s.key, () => api.liveRefresh(s.key))} disabled={!!busy} title={t("Adds the detections made since the newest one imported. Nothing is added twice.")}>{busy === s.key ? t("Reading the station...") : t("Refresh")}</button></td>
+        </tr>)}</tbody>
+      </table>}
+    </div>
   );
 }

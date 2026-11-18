@@ -21,6 +21,8 @@ export interface ImageQuery { species?: number | null; model?: string | null; sh
 export interface PublishReport { sent: number; added: number; duplicates: number; left_out: number; status: string | null; no_place_or_time: number; details_error: string | null }
 
 export interface ImportReport { rows: number; matched: number; added: number; unmatched: number; unmatched_examples: string[]; no_species: number; unknown_names: string[]; tables: number; model: string }
+export interface LiveReport { station: string; kind: string; key: string; from: string; to: string; rows: number; added: number; already: number; no_clip: number; no_species: number; model: string }
+export interface LiveStation { key: string; kind: "base" | "birdnet-go"; name: string; address: string; api: string; lat: number | null; lon: number | null; last: string | null; imported_at: string | null }
 export interface LoadReport { reviewer: string; answers: number; matched: number; unmatched: number }
 export interface SpeciesAgreement { scientific: string; common: string; both: number; yes_no: number; yy: number; yn: number; ny: number; nn: number; percent: number | null; kappa: number | null; percent_low: number | null; percent_high: number | null; kappa_low: number | null; kappa_high: number | null }
 export interface Disagreement extends Detection { other: string }
@@ -85,6 +87,9 @@ export const api = {
   setVerdict: (detection: number, verdict: string | null) => invoke<void>("set_verdict", { detection, verdict }),
   exportTo: (format: string, out: string) => invoke<number>("export_to", { format, out }),
   importResults: (path: string) => invoke<ImportReport>("import_results", { path }),
+  liveImport: (address: string, from: string, to: string) => invoke<LiveReport>("live_import", { address, from, to }),
+  liveRefresh: (key: string) => invoke<LiveReport>("live_refresh", { key }),
+  liveStations: () => invoke<LiveStation[]>("live_stations"),
   answersExport: (out: string, reviewer: string | null) => invoke<number>("answers_export", { out, reviewer }),
   answersLoad: (file: string) => invoke<LoadReport>("answers_load", { file }),
   agreementReport: (reviewer: string | null) => invoke<AgreementReport>("agreement_report", { reviewer }),
@@ -107,11 +112,14 @@ export const fmtDuration = (s: number) => (s < 90 ? `${Math.round(s)} s` : s < 5
 export const MODEL_NAMES: Record<string, string> = {
   "birdnet-2.4": "BirdNET", "perch-2.0": "Perch", wnc: "Wildlife Network Classifier", "speciesnet-4.0.3a": "SpeciesNet",
   "import:birdnet-analyzer": "BirdNET-Analyzer (imported)", "import:birdnet-pi": "BirdNET-Pi or Go (imported)", "import:kaleidoscope": "Kaleidoscope (imported)",
+  "import:live-station": "Live station (imported)",
 };
 export const modelName = (id: string) => (MODEL_NAMES[id] ? t(MODEL_NAMES[id]) : id);
 /** Results imported from another tool: no audio was processed in Studio, so there are no embeddings to search. */
 export const isImported = (id: string) => id.startsWith("import:");
-const TAGS: Record<string, string> = { wnc: "WN Classifier", "import:birdnet-analyzer": "BirdNET-Analyzer", "import:birdnet-pi": "BirdNET-Pi/Go", "import:kaleidoscope": "Kaleidoscope" };
+const TAGS: Record<string, string> = { wnc: "WN Classifier", "import:birdnet-analyzer": "BirdNET-Analyzer", "import:birdnet-pi": "BirdNET-Pi/Go", "import:kaleidoscope": "Kaleidoscope", "import:live-station": "Live station" };
+/** Deployments made by importing from a live station (crates/engine/src/live.rs). */
+export const isLive = (d: { folder: string }) => d.folder.startsWith("live:");
 export const modelTag = (id: string) => TAGS[id] ?? modelName(id);
 
 /** SQLite's UTC "YYYY-MM-DD HH:MM:SS" as local date and time. */

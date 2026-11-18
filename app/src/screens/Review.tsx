@@ -379,7 +379,7 @@ function ClipView({ d, onVerdict, onMove }: { d: Detection; onVerdict: (v: "yes"
       a.onended = () => setPlaying(false);
       audio.current = a;
       a.play().then(() => setPlaying(true)).catch(() => {});
-    }).catch((e) => { if (!off) setFailed(String(e)); });
+    }).catch((e) => { if (!off) setFailed(t(String(e))); });
     return () => { off = true; audio.current?.pause(); };
   }, [d.path, d.start_s, d.end_s, d.model]);
 

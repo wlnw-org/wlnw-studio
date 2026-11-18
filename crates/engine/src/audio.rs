@@ -37,6 +37,17 @@ pub fn probe_rate(path: &Path) -> Option<u32> {
     probed.format.default_track()?.codec_params.sample_rate
 }
 
+/// A recording's length from its header (frames / rate), without decoding; None when the header does not say (some MP3s).
+pub fn duration(path: &Path) -> Option<f64> {
+    let file = std::fs::File::open(path).ok()?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) { hint.with_extension(ext); }
+    let probed = symphonia::default::get_probe().format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default()).ok()?;
+    let c = &probed.format.default_track()?.codec_params;
+    Some(c.n_frames? as f64 / c.sample_rate? as f64)
+}
+
 /// The rate a recording was made at: the header rate times the time expansion factor GUANO notes for time-expanded
 /// bat recordings (a 10x recording written at 38.4 kHz was made at 384 kHz).
 pub fn effective_rate(path: &Path) -> Option<u32> {

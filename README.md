@@ -38,6 +38,20 @@ the species on your own computer, helps you check them in minutes, and exports t
 
 The recordings in these clips are CC0 bird recordings shared by iNaturalist users.
 
+## Live stations
+
+Researchers can check a running station's detections without copying its SD card. On the Recordings screen, **Add a
+live station** takes the address of a [Wildlife Network Base](https://wlnw.org/contribute) or a
+[BirdNET-Go](https://github.com/tphakala/birdnet-go) station on the same network (for example `192.168.1.20` or
+`wnbase.local`) and a range of days. Studio reads the detections from BirdNET-Go's API (`/api/v2/detections`; a Base is
+recognised by its `/api/info` and runs BirdNET-Go on port 8080) and adds each one as a short recording with the station's
+species, confidence, time and place. Review fetches each clip (`/api/v2/audio/<id>`) the first time it is played and keeps
+it in a `<project> clips` folder next to the project. Answers, thresholds, exports and publishing work as for other
+imported results; Studio's own models do not run on these clips. **Refresh** adds the detections made since the last
+import, and a detection is never added twice. Studio only reads (no login, nothing sent to the station), so BirdNET-Go's
+private mode must be off. BirdNET-Pi has no stable read API and is not supported live: copy its files and use **Import
+results**.
+
 ## Download
 
 Installers for macOS (Apple Silicon and Intel), Windows and Linux (x64 AppImage and deb):
@@ -92,6 +106,8 @@ you or your recordings, and nothing is downloaded unless you click Install. Othe
 when you ask it to:
 - downloading a model (Perch 2.0 from Hugging Face), when you click Download;
 - map tiles (OpenFreeMap) when you open the place picker;
+- a station on your own network (Wildlife Network Base or BirdNET-Go), when you add a live station or refresh it or play
+  its clips; Studio only reads from it;
 - Wildlife Network (wlnw.org), when you publish a dataset with its upload key; then the detections you chose to
   publish are sent ([wlnw.org privacy policy](https://wlnw.org/privacy)).
 Studio has no analytics, no crash reporting and no accounts.
