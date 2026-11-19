@@ -34,8 +34,8 @@ CREATE TABLE IF NOT EXISTS live_clips (file_id INTEGER PRIMARY KEY REFERENCES fi
   remote_id TEXT NOT NULL, url TEXT NOT NULL, UNIQUE (station, remote_id));
 "#;
 
-/// Clip formats Studio cannot decode (BirdNET-Go can save AAC and Opus clips).
-const UNSUPPORTED: [&str; 4] = ["m4a", "aac", "ogg", "opus"];
+/// Clip formats Studio cannot decode (BirdNET-Go can save Opus clips). AAC (.m4a, .aac) is decoded like WAV and FLAC.
+const UNSUPPORTED: [&str; 2] = ["ogg", "opus"];
 /// Labels BirdNET-Go can report that are not species. Human sounds are never imported.
 const NOT_SPECIES: [&str; 12] = ["human vocal", "human non-vocal", "human whistle", "homo sapiens", "engine", "siren", "gun", "fireworks",
     "power tools", "environmental", "noise", "dog"];
@@ -331,7 +331,7 @@ pub fn ensure_clip(p: &Project, path: &str) -> Result<Option<f64>> {
     let local = Path::new(path);
     let ext = local.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
     if UNSUPPORTED.contains(&ext.as_str()) {
-        bail!("This station saves clips as {ext}, which Studio cannot play. In BirdNET-Go's audio export settings choose WAV or FLAC; clips saved after that can be reviewed here.");
+        bail!("This station saves clips as Opus ({ext}), which Studio cannot play yet. In BirdNET-Go's audio export settings choose WAV, FLAC or AAC; clips saved after that can be reviewed here.");
     }
     if let (true, Some(d)) = (local.exists(), dur) { return Ok(Some(d)); }
     if !local.exists() {
@@ -468,9 +468,32 @@ mod tests {
         let mut st = Station { key: "bng:x:8080".into(), kind: "birdnet-go".into(), name: "x".into(), address: "http://x:8080".into(), api: "http://x:8080".into(),
             lat: None, lon: None, last: None, imported_at: None };
         let mut r = parse_page(PAGE_JSON).unwrap().0;
-        r[0].clip_ext = Some("m4a".into());
+        r[0].clip_ext = Some("opus".into());
         store(&p, &mut st, &r[..1], &mut LiveReport::default()).unwrap();
         let path: String = p.db.query_row("SELECT path FROM files", [], |x| x.get(0)).unwrap();
         assert!(ensure_clip(&p, &path).unwrap_err().to_string().contains("cannot play"));
+    }
+
+    #[test]
+    fn base_m4a_clips_play() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Project::open(&dir.path().join("P.wlnw")).unwrap();
+        let mut st = Station { key: "base:m4a".into(), kind: "base".into(), name: "Base".into(), address: "http://x".into(), api: "http://x:8080".into(),
+            lat: None, lon: None, last: None, imported_at: None };
+        let json = PAGE_JSON.replace("erithacus_rubecula_91p_20261118T061203Z.wav", "erithacus_rubecula_91p_20261118T061203Z.m4a");
+        let r = parse_page(&json).unwrap().0;
+        assert_eq!(r[0].clip_ext.as_deref(), Some("m4a"));
+        store(&p, &mut st, &r[..1], &mut LiveReport::default()).unwrap();
+        let path: String = p.db.query_row("SELECT path FROM files", [], |x| x.get(0)).unwrap();
+        assert!(path.ends_with("101.m4a"));
+        // As if already fetched from the Base: measured, detection widened to the whole clip, and Review's clip decodes.
+        std::fs::create_dir_all(Path::new(&path).parent().unwrap()).unwrap();
+        std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/tone.m4a"), &path).unwrap();
+        let secs = ensure_clip(&p, &path).unwrap().unwrap();
+        assert!((secs - 1.5).abs() < 0.1, "{secs}");
+        let (rate, end): (i64, f64) = p.db.query_row("SELECT f.sample_rate, d.end_s FROM files f JOIN detections d ON d.file_id = f.id", [], |x| Ok((x.get(0)?, x.get(1)?))).unwrap();
+        assert_eq!((rate, end), (48_000, secs));
+        let c = crate::review::clip_for(Path::new(&path), 0.0, secs, Some(MODEL)).unwrap();
+        assert!(c.width > 0 && c.height > 0 && c.wav.len() > 44 && (c.total_s - secs).abs() < 0.05);
     }
 }

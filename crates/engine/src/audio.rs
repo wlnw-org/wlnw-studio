@@ -16,6 +16,8 @@ pub struct AudioStream {
     format: Box<dyn FormatReader>,
     decoder: Box<dyn Decoder>,
     track: u32,
+    /// The track's timestamp unit (MP4 tracks may count in something other than samples).
+    time_base: Option<symphonia::core::units::TimeBase>,
     pub source_rate: u32,
     /// The rate windows are handed out at.
     pub rate: u32,
@@ -77,7 +79,7 @@ pub fn open(path: &Path, rate: u32) -> Result<AudioStream> {
     if !(1_000..=768_000).contains(&source_rate) { return Err(anyhow!("unsupported sample rate {source_rate} Hz")); }
     let decoder = symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
     let resampler = if source_rate == rate { None } else { Some(FftFixedIn::<f32>::new(source_rate as usize, rate as usize, 4096, 2, 1)?) };
-    Ok(AudioStream { track: track.id, format, decoder, source_rate, rate, resampler, pending: Vec::new(), out: Vec::new(), eof: false, position: 0 })
+    Ok(AudioStream { track: track.id, time_base: track.codec_params.time_base, format, decoder, source_rate, rate, resampler, pending: Vec::new(), out: Vec::new(), eof: false, position: 0 })
 }
 
 impl AudioStream {
@@ -166,7 +168,7 @@ fn segment(mut s: AudioStream, start_s: f64, secs: f64) -> Result<Vec<f32>> {
         let t = Time { seconds: start_s.floor() as u64, frac: start_s.fract() };
         if let Ok(done) = s.format.seek(SeekMode::Accurate, SeekTo::Time { time: t, track_id: Some(s.track) }) {
             s.decoder.reset();
-            at = done.actual_ts as f64 / s.source_rate as f64;
+            at = match s.time_base { Some(tb) => { let t = tb.calc_time(done.actual_ts); t.seconds as f64 + t.frac }, None => done.actual_ts as f64 / s.source_rate as f64 };
         }
     }
     let skip = ((start_s - at).max(0.0) * rate) as usize;
@@ -209,4 +211,44 @@ pub fn wav_bytes(samples: &[f32], rate: u32) -> Vec<u8> {
     let gain = (0.9 / peak).min(20.0); // quiet clips are made audible, never more than 20x
     for &v in samples { b.extend_from_slice(&((((v * gain).clamp(-1.0, 1.0)) * 32767.0).round() as i16).to_le_bytes()); }
     b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 1.5 s, 3 kHz tone, AAC in .m4a at 48 kHz mono: the format a Wildlife Network Base (BirdNET-Go) saves clips in.
+    fn m4a() -> std::path::PathBuf { Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata/tone.m4a") }
+
+    #[test]
+    fn decodes_aac_m4a() {
+        let p = m4a();
+        assert_eq!(probe_rate(&p), Some(48_000));
+        let file = std::fs::File::open(&p).unwrap();
+        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        let mut format = symphonia::default::get_probe().format(Hint::new().with_extension("m4a"), mss, &FormatOptions::default(), &MetadataOptions::default()).unwrap().format;
+        // MP4 headers do not always state the channels for AAC; the decoded audio does.
+        let mut dec = symphonia::default::get_codecs().make(&format.default_track().unwrap().codec_params, &DecoderOptions::default()).unwrap();
+        let packet = format.next_packet().unwrap();
+        let spec = *dec.decode(&packet).unwrap().spec();
+        assert_eq!((spec.channels.count(), spec.rate), (1, 48_000));
+        let all = read_segment(&p, 0.0, 10.0).unwrap();
+        let secs = all.len() as f64 / SR as f64;
+        assert!((secs - 1.5).abs() < 0.1, "decoded {secs} s");
+        if let Some(d) = duration(&p) { assert!((d - 1.5).abs() < 0.1, "header says {d} s"); }
+        // Real sound, not silence.
+        assert!(all.iter().fold(0f32, |m, &v| m.max(v.abs())) > 0.1);
+    }
+
+    #[test]
+    fn seeks_in_aac_m4a() {
+        let p = m4a();
+        let part = read_segment(&p, 0.5, 0.5).unwrap();
+        assert_eq!(part.len(), SR as usize / 2);
+        let whole = read_segment(&p, 0.0, 10.0).unwrap();
+        // The seek lands on the same audio as decoding from the start (within one AAC frame of level).
+        let rms = |x: &[f32]| (x.iter().map(|v| v * v).sum::<f32>() / x.len() as f32).sqrt();
+        let from_start = &whole[SR as usize / 2..SR as usize];
+        assert!((rms(&part) - rms(from_start)).abs() < 0.05);
+    }
 }
