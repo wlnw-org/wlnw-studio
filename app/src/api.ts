@@ -22,7 +22,7 @@ export interface PublishReport { sent: number; added: number; duplicates: number
 
 export interface ImportReport { rows: number; matched: number; added: number; unmatched: number; unmatched_examples: string[]; no_species: number; unknown_names: string[]; tables: number; model: string }
 export interface LiveReport { station: string; kind: string; key: string; from: string; to: string; rows: number; added: number; already: number; no_clip: number; no_species: number; model: string }
-export interface LiveStation { key: string; kind: "base" | "birdnet-go"; name: string; address: string; api: string; lat: number | null; lon: number | null; last: string | null; imported_at: string | null }
+export interface LiveStation { key: string; kind: "base" | "birdnet-go"; name: string; address: string; api: string; lat: number | null; lon: number | null; last: string | null; imported_at: string | null; folder: string | null; moved: string | null }
 export interface LoadReport { reviewer: string; answers: number; matched: number; unmatched: number }
 export interface SpeciesAgreement { scientific: string; common: string; both: number; yes_no: number; yy: number; yn: number; ny: number; nn: number; percent: number | null; kappa: number | null; percent_low: number | null; percent_high: number | null; kappa_low: number | null; kappa_high: number | null }
 export interface Disagreement extends Detection { other: string }

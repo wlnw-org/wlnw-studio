@@ -34,6 +34,11 @@ CREATE TABLE IF NOT EXISTS live_clips (file_id INTEGER PRIMARY KEY REFERENCES fi
   remote_id TEXT NOT NULL, url TEXT NOT NULL, UNIQUE (station, remote_id));
 "#;
 
+/// A Base that reports a place more than this many km from the one it reported before has been moved. Places are typed
+/// in or picked on a map, so picking the same spot again moves it by tens or a few hundred metres; a real move to another
+/// site is usually farther. 1 km is also about the size of the area a station hears and the precision exports need.
+pub const MOVE_KM: f64 = 1.0;
+
 /// Clip formats Studio cannot decode (BirdNET-Go can save Opus clips). AAC (.m4a, .aac) is decoded like WAV and FLAC.
 const UNSUPPORTED: [&str; 2] = ["ogg", "opus"];
 /// Labels BirdNET-Go can report that are not species. Human sounds are never imported.
@@ -58,6 +63,10 @@ pub struct Station {
     /// Station-local date of the newest detection imported: Refresh starts there.
     #[serde(default)] pub last: Option<String>,
     #[serde(default)] pub imported_at: Option<String>,
+    /// Deployment folder new detections go to: None means "live:<key>". A Base that was moved gets "live:<key>@<day>".
+    #[serde(default)] pub folder: Option<String>,
+    /// Day a move was noticed (YYYY-MM-DD, this computer's calendar), for the station list.
+    #[serde(default)] pub moved: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -167,15 +176,20 @@ pub fn clip_dir(project: &Path, key: &str) -> PathBuf {
 /// Adds the listed detections to the project (one recording and one detection each). Detections already imported, and
 /// ones without a clip or a species, are counted and skipped. Updates `station.last`.
 pub fn store(p: &Project, station: &mut Station, rows: &[Row], rep: &mut LiveReport) -> Result<()> {
-    let folder = format!("{PREFIX}{}", station.key);
+    let folder = station.folder.clone().unwrap_or_else(|| format!("{PREFIX}{}", station.key));
+    let name = match (&station.folder, station.moved.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())) {
+        (Some(_), Some(d)) => format!("{} (moved {})", station.name, d.format("%-d %b %Y")),
+        _ => station.name.clone(),
+    };
     let tz = rows.iter().find_map(|r| r.tz_offset_min);
     let kind = if station.kind == "base" { "Wildlife Network Base" } else { "BirdNET-Go" };
     let tx = p.db.unchecked_transaction()?;
-    // A new station takes the place the Base reports; one the user already placed keeps theirs.
+    // A new station takes the place the Base reports; one the user already placed keeps theirs. A moved Base has a new
+    // folder (see `carry`), so this makes a new deployment and the old one keeps its place and detections.
     tx.execute("INSERT INTO deployments (name, folder, serial, model, lat, lon, tz_offset_min, tz_known) VALUES (?1, ?2, '', ?3, ?4, ?5, ?6, ?7)
         ON CONFLICT (folder, serial) DO UPDATE SET lat = COALESCE(deployments.lat, excluded.lat), lon = COALESCE(deployments.lon, excluded.lon),
           tz_offset_min = CASE WHEN deployments.tz_known = 1 THEN deployments.tz_offset_min ELSE excluded.tz_offset_min END, tz_known = MAX(deployments.tz_known, excluded.tz_known)",
-        params![station.name, folder, kind, station.lat, station.lon, tz.unwrap_or(0), tz.is_some() as i64])?;
+        params![name, folder, kind, station.lat, station.lon, tz.unwrap_or(0), tz.is_some() as i64])?;
     let dep: i64 = tx.query_row("SELECT id FROM deployments WHERE folder = ?1 AND serial = ''", [&folder], |r| r.get(0))?;
     let dir = clip_dir(&p.path, &station.key);
     let mut newest: Option<NaiveDate> = station.last.as_deref().and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok());
@@ -216,6 +230,40 @@ pub fn stations(p: &Project) -> Result<Vec<Station>> {
     Ok(out)
 }
 
+/// Distance between two places (lat, lon in degrees), in km.
+pub fn km(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (la1, la2) = (a.0.to_radians(), b.0.to_radians());
+    let h = ((la2 - la1) / 2.0).sin().powi(2) + la1.cos() * la2.cos() * ((b.1 - a.1).to_radians() / 2.0).sin().powi(2);
+    2.0 * 6371.0 * h.sqrt().min(1.0).asin()
+}
+
+/// Carries what an earlier import of the same station knew into a fresh `identify`: the cursor, the deployment and the
+/// place the station reported then. A Base that now reports a place more than MOVE_KM from that one has been moved: its
+/// new detections go to a new deployment ("live:<key>@<day>"), so detections imported earlier keep their place. A first
+/// place (none reported before) fills the deployment as usual. The place compared is the one the station reported when its
+/// current deployment started, not the deployment's own, so a place the user corrected in Studio stays as they set it.
+fn carry(p: &Project, st: &mut Station, old: &Station, today: NaiveDate) -> Result<()> {
+    st.last = old.last.clone();
+    st.folder = old.folder.clone();
+    st.moved = old.moved.clone();
+    match (old.lat.zip(old.lon), st.lat.zip(st.lon)) {
+        (Some(before), Some(now)) if km(before, now) > MOVE_KM => {
+            let base = format!("{PREFIX}{}@{today}", st.key);
+            let (mut folder, mut n) = (base.clone(), 1);
+            while p.db.query_row("SELECT EXISTS (SELECT 1 FROM deployments WHERE folder = ?1 AND serial = '')", [&folder], |r| r.get::<_, bool>(0))? {
+                n += 1;
+                folder = format!("{base}-{n}");
+            }
+            st.folder = Some(folder);
+            st.moved = Some(today.to_string());
+        }
+        // Same place (or none reported now): keep the place the deployment started with, so small steps never add up to a move.
+        (Some(_), _) => { st.lat = old.lat; st.lon = old.lon; }
+        (None, _) => {}
+    }
+    Ok(())
+}
+
 fn save(p: &Project, s: &Station) -> Result<()> { p.set_setting(&format!("{PREFIX}{}", s.key), &serde_json::to_string(s)?) }
 
 // ---- Network (GET only) ----
@@ -246,7 +294,7 @@ pub fn identify(addr: &str) -> Result<Station> {
     }
     if let Some((id, name, lat, lon)) = info {
         let api = if port.is_some_and(|p| p != 80) { base.clone() } else { with_port(&base, 8080) };
-        return Ok(Station { key: format!("base:{id}"), kind: "base".into(), name, address: base, api, lat, lon, last: None, imported_at: None });
+        return Ok(Station { key: format!("base:{id}"), kind: "base".into(), name, address: base, api, lat, lon, last: None, imported_at: None, folder: None, moved: None });
     }
     match get(&a, &format!("{base}/api/v2/ping")) {
         Got::Ok(_) => {
@@ -255,7 +303,7 @@ pub fn identify(addr: &str) -> Result<Station> {
                 _ => None,
             }.filter(|n| !n.trim().is_empty()).unwrap_or_else(|| host.clone());
             let key = format!("bng:{}:{}", host, port.unwrap_or(80));
-            return Ok(Station { key, kind: "birdnet-go".into(), name, address: base.clone(), api: base, lat: None, lon: None, last: None, imported_at: None });
+            return Ok(Station { key, kind: "birdnet-go".into(), name, address: base.clone(), api: base, lat: None, lon: None, last: None, imported_at: None, folder: None, moved: None });
         }
         Got::Status(401 | 403) => bail!("{LOGIN}"),
         Got::Status(_) => reached = true,
@@ -280,8 +328,8 @@ fn date(s: &str) -> Result<NaiveDate> {
 /// Imports a station's detections from `from` to `to` (station-local dates, inclusive).
 pub fn import(p: &Project, addr: &str, from: &str, to: &str) -> Result<LiveReport> {
     let mut st = identify(addr)?;
-    // The same station imported before (a Base keeps its key when its address changes) keeps its cursor and place.
-    if let Some(old) = stations(p)?.into_iter().find(|s| s.key == st.key) { st.last = old.last; }
+    // The same station imported before (a Base keeps its key when its address changes) keeps its cursor and deployment.
+    if let Some(old) = stations(p)?.into_iter().find(|s| s.key == st.key) { carry(p, &mut st, &old, chrono::Local::now().date_naive())?; }
     pull(p, st, from, to)
 }
 
@@ -290,8 +338,8 @@ pub fn refresh(p: &Project, key: &str) -> Result<LiveReport> {
     let Some(old) = stations(p)?.into_iter().find(|s| s.key == key) else { bail!("This station is not in the project.") };
     let mut st = identify(&old.address)?;
     if st.key != old.key { bail!("Another station now answers at {}. Add it with its own address.", old.address); }
-    st.last = old.last.clone();
     let today = chrono::Local::now().date_naive();
+    carry(p, &mut st, &old, today)?;
     // One day past today: the station's calendar may be ahead of this computer's.
     let from = old.last.unwrap_or_else(|| today.format("%Y-%m-%d").to_string());
     pull(p, st, &from, &(today + chrono::Duration::days(1)).format("%Y-%m-%d").to_string())
@@ -426,7 +474,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = Project::open(&dir.path().join("Field.wlnw")).unwrap();
         let mut st = Station { key: "base:abc".into(), kind: "base".into(), name: "Hill top".into(), address: "http://10.0.0.5".into(), api: "http://10.0.0.5:8080".into(),
-            lat: Some(51.5), lon: Some(-0.12), last: None, imported_at: None };
+            lat: Some(51.5), lon: Some(-0.12), last: None, imported_at: None, folder: None, moved: None };
         let (rows, _) = parse_page(PAGE_JSON).unwrap();
         let mut rep = LiveReport::default();
         store(&p, &mut st, &rows, &mut rep).unwrap();
@@ -462,11 +510,76 @@ mod tests {
     }
 
     #[test]
+    fn a_moved_base_starts_a_new_deployment() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Project::open(&dir.path().join("P.wlnw")).unwrap();
+        let robin = parse_page(PAGE_JSON).unwrap().0.remove(0);
+        let row = |id: &str| Row { id: id.into(), ..robin.clone() };
+        let day = NaiveDate::from_ymd_opt(2026, 11, 20).unwrap();
+        // What identify() returns on each import: the Base with the place it reports now.
+        let base = |lat: Option<f64>, lon: Option<f64>| Station { key: "base:abc".into(), kind: "base".into(), name: "Hill top".into(),
+            address: "http://x".into(), api: "http://x:8080".into(), lat, lon, last: None, imported_at: None, folder: None, moved: None };
+        let import = |old: &Station, now: Station, id: &str| -> (Station, LiveReport) {
+            let mut st = now;
+            carry(&p, &mut st, old, day).unwrap();
+            let mut rep = LiveReport::default();
+            store(&p, &mut st, &[row("a1"), row(id)], &mut rep).unwrap();
+            (st, rep)
+        };
+        let placed = |id: &str| -> (String, String, Option<f64>, Option<f64>) { p.db.query_row(
+            "SELECT d.folder, d.name, d.lat, d.lon FROM live_clips l JOIN files f ON f.id = l.file_id JOIN deployments d ON d.id = f.deployment_id WHERE l.remote_id = ?1",
+            [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).unwrap() };
+        let deps = || p.deployments().unwrap().len();
+
+        // No place yet, then the first place arrives: it fills the same deployment.
+        let mut st = base(None, None);
+        store(&p, &mut st, &[row("a1")], &mut LiveReport::default()).unwrap();
+        assert_eq!(placed("a1").2, None);
+        let (st, _) = import(&st, base(Some(51.5), Some(-0.12)), "a2");
+        assert_eq!((deps(), st.folder.as_deref(), st.moved.as_deref()), (1, None, None));
+        assert_eq!(placed("a1"), ("live:base:abc".into(), "Hill top".into(), Some(51.5), Some(-0.12)));
+
+        // The place picked again a few tens of metres off: same deployment, which keeps its place.
+        let (st, _) = import(&st, base(Some(51.5004), Some(-0.1206)), "a3");
+        assert_eq!((deps(), st.folder.as_deref()), (1, None));
+        assert!(km((51.5, -0.12), (51.5004, -0.1206)) < 0.1);
+        assert_eq!(placed("a3").2, Some(51.5));
+
+        // Moved about 80 km: new detections go to a new deployment at the new place; earlier ones stay where they were.
+        let (st, rep) = import(&st, base(Some(52.2), Some(0.12)), "a4");
+        assert_eq!((rep.added, rep.already), (1, 1));
+        assert_eq!((deps(), st.folder.as_deref(), st.moved.as_deref()), (2, Some("live:base:abc@2026-11-20"), Some("2026-11-20")));
+        assert_eq!(placed("a4"), ("live:base:abc@2026-11-20".into(), "Hill top (moved 20 Nov 2026)".into(), Some(52.2), Some(0.12)));
+        for id in ["a1", "a2", "a3"] { assert_eq!(placed(id), ("live:base:abc".into(), "Hill top".into(), Some(51.5), Some(-0.12))); }
+
+        // Later refreshes from the new place keep using it (compared with where it started, so small steps never add up);
+        // a Base that stops reporting a place keeps the last one.
+        let (st, _) = import(&st, base(Some(52.2001), Some(0.1201)), "a5");
+        assert_eq!((deps(), placed("a5").0.as_str()), (2, "live:base:abc@2026-11-20"));
+        let (st, _) = import(&st, base(None, None), "a6");
+        assert_eq!((deps(), st.lat, placed("a6").0.as_str()), (2, Some(52.2), "live:base:abc@2026-11-20"));
+
+        // Moved again the same day: another deployment, its own folder.
+        let (st, _) = import(&st, base(Some(48.85), Some(2.35)), "a7");
+        assert_eq!((deps(), placed("a7").0.as_str()), (3, "live:base:abc@2026-11-20-2"));
+        // The cursor and clip folder are the station's, whatever the deployment.
+        assert_eq!(st.last.as_deref(), Some("2026-11-18"));
+        let paths: Vec<String> = p.db.prepare("SELECT path FROM files").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert!(paths.iter().all(|x| Path::new(x).parent() == Some(clip_dir(&p.path, "base:abc").as_path())), "{paths:?}");
+
+        // A BirdNET-Go station never reports a place: always one deployment.
+        let bng = Station { key: "bng:h:8080".into(), kind: "birdnet-go".into(), lat: None, lon: None, ..base(None, None) };
+        let mut st = bng.clone();
+        carry(&p, &mut st, &bng, day).unwrap();
+        assert_eq!((st.folder, st.moved), (None, None));
+    }
+
+    #[test]
     fn unsupported_clips_say_why() {
         let dir = tempfile::tempdir().unwrap();
         let p = Project::open(&dir.path().join("P.wlnw")).unwrap();
         let mut st = Station { key: "bng:x:8080".into(), kind: "birdnet-go".into(), name: "x".into(), address: "http://x:8080".into(), api: "http://x:8080".into(),
-            lat: None, lon: None, last: None, imported_at: None };
+            lat: None, lon: None, last: None, imported_at: None, folder: None, moved: None };
         let mut r = parse_page(PAGE_JSON).unwrap().0;
         r[0].clip_ext = Some("opus".into());
         store(&p, &mut st, &r[..1], &mut LiveReport::default()).unwrap();
@@ -479,7 +592,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = Project::open(&dir.path().join("P.wlnw")).unwrap();
         let mut st = Station { key: "base:m4a".into(), kind: "base".into(), name: "Base".into(), address: "http://x".into(), api: "http://x:8080".into(),
-            lat: None, lon: None, last: None, imported_at: None };
+            lat: None, lon: None, last: None, imported_at: None, folder: None, moved: None };
         let json = PAGE_JSON.replace("erithacus_rubecula_91p_20261118T061203Z.wav", "erithacus_rubecula_91p_20261118T061203Z.m4a");
         let r = parse_page(&json).unwrap().0;
         assert_eq!(r[0].clip_ext.as_deref(), Some("m4a"));

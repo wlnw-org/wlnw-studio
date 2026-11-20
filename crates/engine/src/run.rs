@@ -101,10 +101,10 @@ pub const EMB_BYTES_PER_SECOND: f64 = 3072.0 / 5.0;
 pub const MIN_FREE_BYTES: u64 = 1 << 30;
 
 /// Embedding bytes per byte of a recording not processed yet (its length is unknown until it is read): typical
-/// recorder formats, 48 kHz 16-bit mono WAV (96 KB/s), FLAC about half that, MP3 about 128 kbit/s.
+/// recorder formats, 48 kHz 16-bit mono WAV (96 KB/s), FLAC about half that, MP3 and AAC about 128 kbit/s.
 fn emb_per_audio_byte(path: &str) -> f64 {
     let ext = Path::new(path).extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-    let audio_bytes_per_s = match ext.as_str() { "flac" => 48_000.0, "mp3" => 16_000.0, _ => 96_000.0 };
+    let audio_bytes_per_s = match ext.as_str() { "flac" => 48_000.0, "mp3" | "m4a" | "aac" => 16_000.0, _ => 96_000.0 };
     EMB_BYTES_PER_SECOND / audio_bytes_per_s
 }
 

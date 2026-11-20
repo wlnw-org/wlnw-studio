@@ -8,7 +8,8 @@ use rusqlite::params;
 use serde::Serialize;
 use std::path::Path;
 
-const AUDIO: &[&str] = &["wav", "flac", "mp3"];
+/// Recording formats read on import. AAC (.m4a, .aac) is what a Wildlife Network Base saves its clips as.
+pub const AUDIO: &[&str] = &["wav", "flac", "mp3", "m4a", "aac"];
 
 #[derive(Debug, Default, Serialize)]
 pub struct ScanReport {
@@ -93,4 +94,30 @@ pub fn summary(r: &ScanReport, folder: &str) -> String {
     if r.images_found > 0 { s.push_str(&format!(", and {} new of {} camera-trap images", crate::history::n(r.images_added as i64), crate::history::n(r.images_found as i64))); }
     s.push_str(&format!(" ({} {})", r.deployments, if r.deployments == 1 { "recorder or camera" } else { "recorders and cameras" }));
     s
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_aac_clips_from_a_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = Project::open(&dir.path().join("P.wlnw")).unwrap();
+        let clips = dir.path().join("wnbase clips");
+        std::fs::create_dir_all(&clips).unwrap();
+        let data = Path::new(env!("CARGO_MANIFEST_DIR")).join("testdata");
+        for f in ["tone.m4a", "tone.aac"] { std::fs::copy(data.join(f), clips.join(f)).unwrap(); }
+        let rep = scan(&p, dir.path()).unwrap();
+        assert_eq!((rep.found, rep.added, rep.deployments), (2, 2, 1));
+        let rates: Vec<Option<i64>> = p.db.prepare("SELECT sample_rate FROM files ORDER BY path").unwrap()
+            .query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(rates, vec![Some(48_000), Some(48_000)]);
+        // The .m4a header gives its length; both decode to about 1.5 s of sound.
+        assert!((crate::audio::duration(&clips.join("tone.m4a")).unwrap() - 1.5).abs() < 0.1);
+        for f in ["tone.m4a", "tone.aac"] {
+            let secs = crate::audio::read_segment(&clips.join(f), 0.0, 10.0).unwrap().len() as f64 / crate::SR as f64;
+            assert!((secs - 1.5).abs() < 0.1, "{f}: {secs}");
+        }
+    }
 }

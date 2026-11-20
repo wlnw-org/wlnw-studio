@@ -6,7 +6,7 @@ A free desktop app for wildlife researchers with more recordings than time. Poin
 the species on your own computer, helps you check them in minutes, and exports them for GBIF or publishes them to
 [Wildlife Network](https://wlnw.org).
 
-- **Process locally.** WAV, FLAC and MP3 from AudioMoth, Song Meter and other recorders; time, place and recorder read
+- **Process locally.** WAV, FLAC, MP3 and AAC (.m4a) from AudioMoth, Song Meter and other recorders; time, place and recorder read
   from the files. Resumes after a crash or a closed lid. Nothing is uploaded.
 - **Models.** Perch 2.0 (about 15,000 species: birds, frogs, insects, mammals; downloaded on first use), BirdNET 2.4,
   BatDetect2 for UK bats (you make its files from the official package) and SpeciesNet with MegaDetector for camera
