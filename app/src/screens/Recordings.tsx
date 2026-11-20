@@ -57,7 +57,7 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
       <header className="head">
         <div>
           <h2>{t("Recordings")}</h2>
-          <p className="muted">{t("Add a whole drive or SD card copy. Subfolders are searched; WAV, FLAC and MP3 recordings and JPEG and PNG camera-trap images are read. Files already added are skipped.")}</p>
+          <p className="muted">{t("Add a whole drive or SD card copy. Subfolders are searched; WAV, FLAC, MP3 and AAC (.m4a) recordings and JPEG and PNG camera-trap images are read. Files already added are skipped.")}</p>
         </div>
         <button className="primary" onClick={add} disabled={busy}>{busy ? t("Reading files...") : t("Add a folder or drive")}</button>
       </header>
@@ -192,7 +192,7 @@ function Live({ refresh, onError, setReport }: { refresh: () => void; onError: (
           <td className="small">{s.address.replace(/^http:\/\//, "")}{s.kind === "base"
             ? <small className="muted block">{t("Not published again: the Base already shares its detections with Wildlife Network.")}</small>
             : <small className="muted block">{t("If this BirdNET-Go also sends to Wildlife Network (wdx-agent) or BirdWeather, publishing these would count them twice.")}</small>}</td>
-          <td className="small">{s.last ?? ""}</td>
+          <td className="small">{s.last ?? ""}{s.moved && <small className="muted block">{t("Moved on {date}: detections from then on are filed under the new place, earlier ones keep the old place.", { date: s.moved })}</small>}</td>
           <td><button onClick={() => run(s.key, () => api.liveRefresh(s.key))} disabled={!!busy} title={t("Adds the detections made since the newest one imported. Nothing is added twice.")}>{busy === s.key ? t("Reading the station...") : t("Refresh")}</button></td>
         </tr>)}</tbody>
       </table>}

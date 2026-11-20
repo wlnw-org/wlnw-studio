@@ -117,7 +117,7 @@ mod tests {
         let row = |id: &str| Row { id: id.into(), scientific: "Erithacus rubecula".into(), common: "European Robin".into(), confidence: 0.9,
             local: chrono::NaiveDateTime::parse_from_str("2026-11-18 06:00:00", "%Y-%m-%d %H:%M:%S").unwrap(), tz_offset_min: Some(0), clip_ext: Some("wav".into()) };
         let station = |key: &str, kind: &str| Station { key: key.into(), kind: kind.into(), name: key.into(), address: "http://x".into(), api: "http://x:8080".into(),
-            lat: Some(51.5), lon: Some(-0.1), last: None, imported_at: None };
+            lat: Some(51.5), lon: Some(-0.1), last: None, imported_at: None, folder: None, moved: None };
         store(&p, &mut station("base:abc", "base"), &[row("1"), row("2")], &mut LiveReport::default()).unwrap();
         store(&p, &mut station("bng:x:8080", "birdnet-go"), &[row("3")], &mut LiveReport::default()).unwrap();
         let accepted = p.accepted().unwrap();

@@ -1,4 +1,4 @@
-//! Streaming audio reader: any WAV, FLAC or MP3, mixed to mono and resampled to 48 kHz, handed out in 3 s windows.
+//! Streaming audio reader: any WAV, FLAC, MP3 or AAC (.m4a, .aac), mixed to mono and resampled to 48 kHz, handed out in 3 s windows.
 //! Memory stays small however long the file is.
 use crate::SR;
 use anyhow::{anyhow, Context, Result};
