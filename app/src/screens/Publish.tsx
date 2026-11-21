@@ -12,6 +12,8 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
   const t = useT();
   const [info, setInfo] = useState<DatasetInfo>(summary.dataset);
   const [saved, setSaved] = useState(true);
+  // What is typed in "People to credit" stays as typed (spaces, new lines); the list of names is worked out from it.
+  const [peopleText, setPeopleText] = useState(summary.dataset.people.join("\n"));
   const [msg, setMsg] = useState<string | null>(null);
   const [dataset, setDataset] = useState("");
   const [key, setKey] = useState("");
@@ -60,7 +62,7 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
         <h3>{t("About this dataset")}</h3>
         <label className="field">{t("Title")}<input value={info.title} onChange={(e) => set({ title: e.target.value })} /></label>
         <label className="field">{t("Institution")}<input value={info.institution ?? ""} onChange={(e) => set({ institution: e.target.value || null })} /></label>
-        <label className="field">{t("People to credit, one per line")}<textarea rows={3} value={info.people.join("\n")} onChange={(e) => set({ people: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} /></label>
+        <label className="field">{t("People to credit, one per line")}<textarea rows={3} value={peopleText} onChange={(e) => { setPeopleText(e.target.value); set({ people: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) }); }} /></label>
         <label className="field">{t("How it was collected")}<textarea rows={3} value={info.description ?? ""} onChange={(e) => set({ description: e.target.value || null })} /></label>
         <label className="field">{t("Licence")}
           <select value={info.license} onChange={(e) => set({ license: e.target.value })}>{LICENSES.map(([k, l]) => <option key={k} value={k}>{t(l)}</option>)}</select>
