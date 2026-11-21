@@ -507,6 +507,25 @@ const fr: Record<string, string> = {
   "Use the station's local address (http), for example 192.168.1.20 or wnbase.local.": "Utilisez l'adresse locale de la station (http), par exemple 192.168.1.20 ou wnbase.local.",
   "Enter the station's address, for example 192.168.1.20 or wnbase.local.": "Saisissez l'adresse de la station, par exemple 192.168.1.20 ou wnbase.local.",
   "This station is not in the project.": "Cette station n'est pas dans le projet.",
+  // Removing from a project
+  "Remove": "Retirer",
+  "Cancel": "Annuler",
+  "Remove from project": "Retirer du projet",
+  "Removed from project": "Retiré du projet",
+  "Remove {what} from this project?": "Retirer {what} de ce projet ?",
+  "Recordings: {n}": "Enregistrements : {n}",
+  "Camera-trap images: {n}": "Images de pièges photographiques : {n}",
+  "Detections: {n}": "Détections : {n}",
+  "Your review answers: {n}": "Vos réponses de vérification : {n}",
+  "The files stay on your disk. Studio only forgets them: add the folder again to bring them back, then process them again.": "Les fichiers restent sur votre disque. Studio les oublie seulement : ajoutez de nouveau le dossier pour les retrouver, puis traitez-les de nouveau.",
+  "Clips Studio fetched from the station are deleted from the project's clips folder. Import the station again to fetch them again.": "Les extraits que Studio a récupérés de la station sont supprimés du dossier d'extraits du projet. Importez de nouveau la station pour les récupérer.",
+  "This cannot be undone.": "Cette action est irréversible.",
+  "Removed from the project: {recordings} recordings and {detections} detections. The files are still on your disk.": "Retirés du projet : {recordings} enregistrements et {detections} détections. Les fichiers sont toujours sur votre disque.",
+  "Take this recorder out of the project. The files stay on your disk.": "Retirer cet enregistreur du projet. Les fichiers restent sur votre disque.",
+  "Take this station and its detections out of the project. Nothing is changed on the station.": "Retirer cette station et ses détections du projet. Rien n'est modifié sur la station.",
+  "Take this recording out of the project. The file stays on your disk.": "Retirer cet enregistrement du projet. Le fichier reste sur votre disque.",
+  "Pause processing first.": "Mettez d'abord le traitement en pause.",
+  "Nothing chosen to remove.": "Rien n'a été choisi à retirer.",
 };
 
 const pt: Record<string, string> = {
@@ -1015,6 +1034,25 @@ const pt: Record<string, string> = {
   "Use the station's local address (http), for example 192.168.1.20 or wnbase.local.": "Use o endereço local da estação (http), por exemplo 192.168.1.20 ou wnbase.local.",
   "Enter the station's address, for example 192.168.1.20 or wnbase.local.": "Digite o endereço da estação, por exemplo 192.168.1.20 ou wnbase.local.",
   "This station is not in the project.": "Esta estação não está no projeto.",
+  // Removing from a project
+  "Remove": "Remover",
+  "Cancel": "Cancelar",
+  "Remove from project": "Remover do projeto",
+  "Removed from project": "Removido do projeto",
+  "Remove {what} from this project?": "Remover {what} deste projeto?",
+  "Recordings: {n}": "Gravações: {n}",
+  "Camera-trap images: {n}": "Imagens de armadilhas fotográficas: {n}",
+  "Detections: {n}": "Detecções: {n}",
+  "Your review answers: {n}": "Suas respostas de revisão: {n}",
+  "The files stay on your disk. Studio only forgets them: add the folder again to bring them back, then process them again.": "Os arquivos continuam no seu disco. O Studio apenas os esquece: adicione a pasta de novo para trazê-los de volta e processe-os outra vez.",
+  "Clips Studio fetched from the station are deleted from the project's clips folder. Import the station again to fetch them again.": "Os trechos que o Studio buscou da estação são apagados da pasta de trechos do projeto. Importe a estação de novo para buscá-los outra vez.",
+  "This cannot be undone.": "Isso não pode ser desfeito.",
+  "Removed from the project: {recordings} recordings and {detections} detections. The files are still on your disk.": "Removidos do projeto: {recordings} gravações e {detections} detecções. Os arquivos continuam no seu disco.",
+  "Take this recorder out of the project. The files stay on your disk.": "Tirar este gravador do projeto. Os arquivos continuam no seu disco.",
+  "Take this station and its detections out of the project. Nothing is changed on the station.": "Tirar esta estação e suas detecções do projeto. Nada é alterado na estação.",
+  "Take this recording out of the project. The file stays on your disk.": "Tirar esta gravação do projeto. O arquivo continua no seu disco.",
+  "Pause processing first.": "Pause o processamento primeiro.",
+  "Nothing chosen to remove.": "Nada foi escolhido para remover.",
 };
 
 export const MESSAGES: Record<string, Record<string, string>> = { fr, pt };

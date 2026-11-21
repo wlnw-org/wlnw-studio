@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FlagMark, SpeciesBox, useOnlineFlags, usePrefetch } from "../Online";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { api, isImported, modelName, modelTag, type AgreementReport, type Clip, type Detection, type Similar, type SpeciesRow, type Summary } from "../api";
+import { api, isImported, wavUrl, modelName, modelTag, type AgreementReport, type Clip, type Detection, type Similar, type SpeciesRow, type Summary } from "../api";
 import { t as tr, useT } from "../i18n";
 
 const PER_ROUND = 18;
@@ -332,9 +332,11 @@ function Teach({ d, onError }: { d: Detection; onError: (e: string) => void }) {
 function SimilarRow({ w, sci, mark, onMark, onError }: { w: Similar; sci: string; mark: boolean | undefined; onMark: (p: boolean) => void; onError: (e: string) => void }) {
   const t = useT();
   const a = useRef<HTMLAudioElement | null>(null);
+  const url = useRef<string | null>(null);
+  useEffect(() => () => { a.current?.pause(); if (url.current) URL.revokeObjectURL(url.current); }, []);
   async function play() {
     try {
-      if (!a.current) { const c = await api.clip(w.path, w.start_s, w.end_s); a.current = new Audio(`data:audio/wav;base64,${c.wav}`); }
+      if (!a.current) { const c = await api.clip(w.path, w.start_s, w.end_s); url.current = wavUrl(c.wav); a.current = new Audio(url.current); }
       a.current.currentTime = 0; a.current.play();
     } catch (e) { onError(String(e)); }
   }
@@ -371,25 +373,31 @@ function ClipView({ d, onVerdict, onMove }: { d: Detection; onVerdict: (v: "yes"
 
   useEffect(() => {
     let off = false;
+    let url: string | null = null;
     api.clip(d.path, d.start_s, d.end_s, d.model).then((c) => {
       if (off) return;
       setClip(c);
-      const a = new Audio(`data:audio/wav;base64,${c.wav}`);
+      url = wavUrl(c.wav);
+      const a = new Audio(url);
       a.ontimeupdate = () => setT(a.currentTime / (c.playback || 1));
       a.onended = () => setPlaying(false);
       audio.current = a;
       a.play().then(() => setPlaying(true)).catch(() => {});
     }).catch((e) => { if (!off) setFailed(t(String(e))); });
-    return () => { off = true; audio.current?.pause(); };
+    return () => { off = true; audio.current?.pause(); audio.current = null; if (url) URL.revokeObjectURL(url); };
   }, [d.path, d.start_s, d.end_s, d.model]);
 
   useEffect(() => {
     if (!clip || !canvas.current) return;
-    const bytes = Uint8Array.from(atob(clip.spec), (ch) => ch.charCodeAt(0));
-    const ctx = canvas.current.getContext("2d")!;
+    const ctx = canvas.current.getContext("2d");
+    if (!ctx || !clip.width || !clip.height) return;
+    // Straight into the pixel buffer: no array per pixel (slow on WebKitGTK for the larger bat and live clips).
+    const bin = atob(clip.spec);
     canvas.current.width = clip.width; canvas.current.height = clip.height;
     const img = ctx.createImageData(clip.width, clip.height);
-    for (let k = 0; k < bytes.length; k++) { const [r, g, b] = LUT[bytes[k]]; img.data.set([r, g, b, 255], k * 4); }
+    const px = img.data;
+    const n = Math.min(bin.length, clip.width * clip.height);
+    for (let k = 0, o = 0; k < n; k++, o += 4) { const c = LUT[bin.charCodeAt(k)]; px[o] = c[0]; px[o + 1] = c[1]; px[o + 2] = c[2]; px[o + 3] = 255; }
     ctx.putImageData(img, 0, 0);
   }, [clip]);
 

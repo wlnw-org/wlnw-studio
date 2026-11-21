@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { api, fmtDuration, fmtWhen, type HistoryEntry, type Summary } from "../api";
 import { useT } from "../i18n";
 
-const KIND: Record<string, string> = { run: "Processing", scan: "Recordings added", train: "Classifier trained", export: "Export", publish: "Published", import: "Results imported", agreement: "Second reviewer" };
+const KIND: Record<string, string> = { run: "Processing", scan: "Recordings added", train: "Classifier trained", export: "Export", publish: "Published", import: "Results imported", agreement: "Second reviewer", remove: "Removed from project" };
 const STATUS: Record<string, string> = { running: "Running", finished: "Finished", paused: "Paused", interrupted: "Interrupted", failed: "Failed" };
 
 function took(e: HistoryEntry) {

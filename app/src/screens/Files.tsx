@@ -3,6 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api, fmtBytes, fmtDuration, fmtWhen, modelTag, type FilePage, type FileStatus, type Summary } from "../api";
 import { useT } from "../i18n";
+import { removeFromProject, removedNote } from "../removing";
 
 const PAGE = 200;
 const TABS: { id: FileStatus | ""; label: string }[] = [
@@ -40,6 +41,9 @@ export default function Files({ summary, refresh, onError, initialStatus }: { su
         : file == null ? t("{n} failed attempts cleared. Start processing to try them again.", { n: n.toLocaleString() }) : t("{n} failed attempts cleared. Start processing to try it again.", { n: n.toLocaleString() }));
       refresh(); load();
     } catch (e) { onError(String(e)); }
+  }
+  async function remove(id: number, path: string) {
+    try { const c = await removeFromProject(name(path), { files: [id] }); if (c) { setMsg(removedNote(c)); refresh(); load(); } } catch (e) { onError(t(String(e))); }
   }
   async function saveList() {
     const out = await save({ title: t("Save the list of recordings"), defaultPath: `${summary.name}-${t("recordings")}.csv`, filters: [{ name: "CSV", extensions: ["csv"] }] });
@@ -111,6 +115,7 @@ export default function Files({ summary, refresh, onError, initialStatus }: { su
                   <td className="actions">
                     <button className="small-btn" onClick={() => revealItemInDir(r.path).catch((e) => onError(String(e)))}>{t("Show")}</button>
                     {r.status === "failed" && <button className="small-btn" onClick={() => retry(r.id)} disabled={summary.running}>{t("Retry")}</button>}
+                    <button className="small-btn" onClick={() => remove(r.id, r.path)} disabled={summary.running} title={summary.running ? t("Pause processing first") : t("Take this recording out of the project. The file stays on your disk.")}>{t("Remove")}</button>
                   </td>
                 </tr>
               ))}

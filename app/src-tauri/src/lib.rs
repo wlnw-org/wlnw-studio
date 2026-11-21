@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use wlnw_engine::models::{self, Classifier, ModelInfo};
-use wlnw_engine::{agreement, camtrap, download, export, import, files, live, history, images, occupancy, online, publish, review, run, scan, share, store::Project, wnc};
+use wlnw_engine::{agreement, camtrap, download, export, import, files, live, history, images, occupancy, online, publish, remove, review, run, scan, share, store::Project, wnc};
 
 #[derive(Default)]
 struct App {
@@ -57,10 +57,10 @@ fn have(app: &tauri::AppHandle) -> Vec<String> { models(app).0.iter().map(|m| m.
 struct CatalogItem { #[serde(flatten)] pack: download::Pack, installed: bool, downloading: bool, size: u64 }
 
 /// Who made each model, its licence and how to cite it (Credits and licences screen, and next to each model).
-#[tauri::command]
+#[tauri::command(async)]
 fn credits() -> Vec<wlnw_engine::credits::Credit> { wlnw_engine::credits::CREDITS.to_vec() }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn model_catalog(app: tauri::AppHandle) -> Vec<CatalogItem> {
     let dirs = model_dirs(&app);
     let busy = DOWNLOADING.lock().unwrap().clone();
@@ -73,7 +73,7 @@ fn model_catalog(app: tauri::AppHandle) -> Vec<CatalogItem> {
 #[derive(Clone, Serialize)]
 struct DownloadEvent { id: String, done: u64, total: u64, finished: bool, error: Option<String> }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn download_model(app: tauri::AppHandle, id: String) -> R<()> {
     let pack = download::CATALOG.iter().find(|p| p.id == id).ok_or("unknown model")?;
     { let mut b = DOWNLOADING.lock().unwrap(); if b.contains(&id) { return Err("Already downloading.".into()); } b.push(id.clone()); }
@@ -90,11 +90,11 @@ fn download_model(app: tauri::AppHandle, id: String) -> R<()> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn cancel_download() { STOP_DOWNLOAD.store(true, Ordering::SeqCst); }
 
 /// Copies model files the user already has (for example BirdNET's) into the downloads folder.
-#[tauri::command]
+#[tauri::command(async)]
 fn add_models_folder(app: tauri::AppHandle, folder: String) -> R<Vec<&'static str>> {
     let r = download::add_from_folder(Path::new(&folder), &install_dir(&app)?).map_err(err)?;
     reload_models();
@@ -118,7 +118,7 @@ struct Summary {
 #[derive(Serialize)]
 struct WncInfo { trained_at: String, classes: Vec<(String, String, usize, Option<f64>)> }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_project(file: String, s: State<App>) -> R<()> {
     let p = PathBuf::from(&file);
     Project::open(&p).map_err(err)?;
@@ -126,7 +126,7 @@ fn open_project(file: String, s: State<App>) -> R<()> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn summary(app: tauri::AppHandle, s: State<App>) -> R<Summary> {
     let p = open(&s)?;
     let file = path(&s)?;
@@ -162,7 +162,7 @@ async fn scan_folder(folder: String, s: State<'_, App>) -> R<scan::ScanReport> {
     }).await.map_err(err)?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn update_deployment(id: i64, name: String, lat: Option<f64>, lon: Option<f64>, tz_hours: f64, s: State<App>) -> R<()> {
     if lat.is_some_and(|v| !(-90.0..=90.0).contains(&v)) || lon.is_some_and(|v| !(-180.0..=180.0).contains(&v)) { return Err("Latitude must be -90 to 90 and longitude -180 to 180.".into()); }
     open(&s)?.update_deployment(id, &name, lat, lon, (tz_hours * 60.0).round() as i32).map_err(err)
@@ -170,22 +170,22 @@ fn update_deployment(id: i64, name: String, lat: Option<f64>, lon: Option<f64>, 
 
 /// Camera traps: the deployment's country (ISO 3166-1 alpha-3) and US state for SpeciesNet's geofencing. True when its
 /// images will run again.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_deployment_country(id: i64, country: Option<String>, admin1: Option<String>, s: State<App>) -> R<bool> {
     if s.running.load(Ordering::SeqCst) { return Err("Pause processing first.".into()); }
     images::set_country(&open(&s)?, id, country.as_deref(), admin1.as_deref()).map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn image_species(s: State<App>) -> R<Vec<images::SpeciesRow>> { images::species(&open(&s)?).map_err(err) }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn image_queue(query: images::Query, s: State<App>) -> R<Vec<images::ImageItem>> { images::queue(&open(&s)?, &query).map_err(err) }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn image_filters(s: State<App>) -> R<std::collections::BTreeMap<&'static str, i64>> { images::filter_counts(&open(&s)?).map_err(err) }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_image_verdict(box_id: i64, verdict: Option<String>, s: State<App>) -> R<()> { images::set_verdict(&open(&s)?, box_id, verdict.as_deref()).map_err(err) }
 
 /// A JPEG of an image for the review grid, as base64.
@@ -197,17 +197,17 @@ async fn image_thumb(file: String, max: u32) -> R<String> {
     }).await.map_err(err)?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_setting(key: String, value: String, s: State<App>) -> R<()> {
     if !["default_threshold", "dataset", "models"].contains(&key.as_str()) { return Err("unknown setting".into()); }
     open(&s)?.set_setting(&key, &value).map_err(err)
 }
 
 /// The Wildlife Network dataset this project was last published to (pre-fills the Publish screen; the key is never stored).
-#[tauri::command]
+#[tauri::command(async)]
 fn published_dataset(s: State<App>) -> R<Option<String>> { open(&s)?.setting("dataset_id").map_err(err) }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn start_run(app: tauri::AppHandle, s: State<App>) -> R<()> {
     let m = models(&app);
     if m.0.is_empty() { return Err(m.1.join(" ")); }
@@ -227,13 +227,13 @@ fn start_run(app: tauri::AppHandle, s: State<App>) -> R<()> {
     Ok(())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn stop_run(s: State<App>) { s.stop.store(true, Ordering::SeqCst); }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn species(s: State<App>) -> R<Vec<review::SpeciesRow>> { review::species(&open(&s)?).map_err(err) }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn review_queue(label: i64, model: String, n: usize, s: State<App>) -> R<Vec<wlnw_engine::store::Detection>> { review::queue(&open(&s)?, label, &model, n).map_err(err) }
 
 #[derive(Serialize)]
@@ -254,12 +254,12 @@ async fn clip(file: String, start_s: f64, end_s: f64, model: Option<String>, s: 
     }).await.map_err(err)?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_verdict(detection: i64, verdict: Option<String>, s: State<App>) -> R<()> { review::set_verdict(&open(&s)?, detection, verdict.as_deref()).map_err(err) }
 
 /// "This clip is species X" (or "X is not here"): an example for the Wildlife Network Classifier. Returns false when the
 /// recording has not been through Perch yet (examples need its embedding).
-#[tauri::command]
+#[tauri::command(async)]
 fn name_sound(detection: i64, scientific: String, common: String, present: bool, s: State<App>) -> R<bool> {
     let p = open(&s)?;
     match wnc::window_for(&p, detection).map_err(err)? {
@@ -285,7 +285,7 @@ async fn similar(detection: i64, scientific: String, n: usize, s: State<'_, App>
 #[derive(Serialize)]
 struct SimilarResult { seeds: usize, windows: Vec<SimilarOut> }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn label_window(window: i64, scientific: String, common: String, present: bool, s: State<App>) -> R<()> {
     wnc::add_example(&open(&s)?, window, &scientific, &common, present).map_err(err)
 }
@@ -302,7 +302,7 @@ async fn train_wnc(s: State<'_, App>) -> R<wnc::TrainReport> {
     }).await.map_err(err)?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn wnc_export(out: String, s: State<App>) -> R<()> {
     let p = open(&s)?;
     let k = wnc::pack(&p).ok_or("Nothing trained yet.")?;
@@ -353,7 +353,7 @@ async fn publish_to(app: tauri::AppHandle, dataset: String, key: String, submit:
     }).await.map_err(err)?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_files(app: tauri::AppHandle, query: files::Query, s: State<App>) -> R<files::Page> { files::list(&open(&s)?, &have(&app), &query).map_err(err) }
 
 #[tauri::command]
@@ -363,10 +363,28 @@ async fn export_file_list(app: tauri::AppHandle, query: files::Query, out: Strin
     tauri::async_runtime::spawn_blocking(move || files::csv(&Project::open(&file).map_err(err)?, &have, &query, Path::new(&out)).map_err(err)).await.map_err(err)?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn retry_failed(file: Option<i64>, s: State<App>) -> R<usize> {
     if s.running.load(Ordering::SeqCst) { return Err("Pause processing first.".into()); }
     files::retry_failed(&open(&s)?, file).map_err(err)
+}
+
+/// What removing recorders, live stations or recordings would take out of the project (for the confirmation).
+#[tauri::command(async)]
+fn remove_preview(target: remove::Target, s: State<App>) -> R<remove::Counts> { remove::preview(&open(&s)?, &target).map_err(err) }
+
+/// Removes recorders, live stations or recordings from the project: Studio's records only, never the audio files.
+#[tauri::command]
+async fn remove_from_project(target: remove::Target, s: State<'_, App>) -> R<remove::Counts> {
+    if s.running.load(Ordering::SeqCst) { return Err("Pause processing first.".into()); }
+    let file = path(&s)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = Project::open(&file).map_err(err)?;
+        let t = history::now(&p);
+        let r = remove::remove(&p, &target);
+        history::log(&p, "remove", &t, &r, remove::summary, "Removing failed");
+        r.map_err(err)
+    }).await.map_err(err)?
 }
 
 /// Results from another tool (a table or a folder of them), matched to the recordings already in the project.
@@ -410,10 +428,10 @@ async fn live_refresh(key: String, s: State<'_, App>) -> R<live::LiveReport> {
     }).await.map_err(err)?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn live_stations(s: State<App>) -> R<Vec<live::Station>> { live::stations(&open(&s)?).map_err(err) }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn answers_export(out: String, reviewer: Option<String>, s: State<App>) -> R<usize> {
     let p = open(&s)?;
     let t = history::now(&p);
@@ -422,7 +440,7 @@ fn answers_export(out: String, reviewer: Option<String>, s: State<App>) -> R<usi
     r.map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn answers_load(file: String, s: State<App>) -> R<agreement::LoadReport> {
     let p = open(&s)?;
     let t = history::now(&p);
@@ -432,11 +450,11 @@ fn answers_load(file: String, s: State<App>) -> R<agreement::LoadReport> {
     r.map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn agreement_report(reviewer: Option<String>, s: State<App>) -> R<agreement::Report> { agreement::report(&open(&s)?, reviewer.as_deref()).map_err(err) }
 
 /// Agreement and precision per species, with 95% intervals, as one CSV for a paper's supplement.
-#[tauri::command]
+#[tauri::command(async)]
 fn agreement_table(reviewer: Option<String>, out: String, s: State<App>) -> R<usize> {
     let p = open(&s)?;
     let t = history::now(&p);
@@ -445,13 +463,13 @@ fn agreement_table(reviewer: Option<String>, out: String, s: State<App>) -> R<us
     r.map_err(err)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn agreement_settle(reviewer: String, detection: i64, verdict: String, s: State<App>) -> R<()> { agreement::settle(&open(&s)?, &reviewer, detection, &verdict).map_err(err) }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn reviewer_name(s: State<App>) -> R<Option<String>> { open(&s)?.setting("reviewer").map_err(err) }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn history_list(s: State<App>) -> R<Vec<history::Entry>> { history::list(&open(&s)?, 500).map_err(err) }
 
 // ---------- Wildlife Network when online (app setting, not per project) ----------
@@ -469,10 +487,10 @@ fn load_app_settings(app: &tauri::AppHandle) {
     ONLINE.store(v["online"].as_bool().unwrap_or(true), Ordering::SeqCst);
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn online_enabled() -> bool { ONLINE.load(Ordering::SeqCst) }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn set_online_enabled(app: tauri::AppHandle, on: bool) -> R<()> {
     ONLINE.store(on, Ordering::SeqCst);
     let p = app_settings_path(&app).ok_or("no settings folder")?;
@@ -504,7 +522,7 @@ fn share_key(app: &tauri::AppHandle) -> Option<String> {
 #[derive(Serialize)]
 struct ShareStatus { enabled: bool, has_key: bool, shared: i64, pending: usize }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn share_status(app: tauri::AppHandle, s: State<App>) -> R<ShareStatus> {
     let v = read_app_settings(&app);
     let key = v["share_key"].as_str().unwrap_or("").to_string();
@@ -516,7 +534,7 @@ fn share_status(app: tauri::AppHandle, s: State<App>) -> R<ShareStatus> {
 }
 
 /// Turns sharing on or off. `new_key` (64 hex characters from the system's secure random source) is used the first time.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_share(app: tauri::AppHandle, on: bool, new_key: Option<String>) -> R<()> {
     let mut v = read_app_settings(&app);
     v["share"] = serde_json::Value::Bool(on);
@@ -528,7 +546,7 @@ fn set_share(app: tauri::AppHandle, on: bool, new_key: Option<String>) -> R<()> 
 }
 
 /// Sends the open project's unshared answers in the background; emits "share-done" with a short message.
-#[tauri::command]
+#[tauri::command(async)]
 fn share_now(app: tauri::AppHandle, s: State<App>) -> R<()> {
     let Some(key) = share_key(&app) else { return Ok(()) };
     let file = path(&s)?;
@@ -557,7 +575,7 @@ async fn share_delete(app: tauri::AppHandle, s: State<'_, App>) -> R<i64> {
 
 /// Fills the project's cache from wlnw.org in the background (recorder positions rounded to about 10 km, species names);
 /// emits "online-updated" as answers arrive. Does nothing when the setting is off or a fill is already running.
-#[tauri::command]
+#[tauri::command(async)]
 fn online_prefetch(app: tauri::AppHandle, s: State<App>) -> R<()> {
     if !ONLINE.load(Ordering::SeqCst) { return Ok(()); }
     let file = path(&s)?;
@@ -571,7 +589,7 @@ fn online_prefetch(app: tauri::AppHandle, s: State<App>) -> R<()> {
 }
 
 /// Species-list markers from the cache (no network): label id to "unusual" or "few".
-#[tauri::command]
+#[tauri::command(async)]
 fn online_flags(s: State<App>) -> R<std::collections::HashMap<i64, online::Status>> {
     if !ONLINE.load(Ordering::SeqCst) { return Ok(Default::default()); }
     online::flags(&open(&s)?, chrono::Utc::now()).map_err(err)
@@ -592,7 +610,7 @@ async fn online_species(scientific: String, model: String, deployment: i64, s: S
 }
 
 /// "Around this recorder" for every recorder with a position, from the cache (the background fill brings new answers).
-#[tauri::command]
+#[tauri::command(async)]
 fn online_around(s: State<App>) -> R<Vec<online::Around>> {
     if !ONLINE.load(Ordering::SeqCst) { return Ok(vec![]); }
     let p = open(&s)?;
@@ -600,8 +618,21 @@ fn online_around(s: State<App>) -> R<Vec<online::Around>> {
     Ok(p.deployments().map_err(err)?.into_iter().filter_map(|d| Some(online::around(&p, d.id, d.lat?, d.lon?, None, now))).collect())
 }
 
+/// WebKitGTK's DMA-BUF renderer leaves the window blank or frozen with some graphics drivers (Intel and NVIDIA reports
+/// on Mint and Ubuntu 24.04), so it is off unless the user chose: WEBKIT_DISABLE_DMABUF_RENDERER=0 turns it back on.
+/// Runs before any other thread starts, so changing the environment is safe.
+#[cfg(target_os = "linux")]
+fn linux_webview_defaults() {
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        // SAFETY: first thing in run(), while the process has a single thread.
+        unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "linux")]
+    linux_webview_defaults();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -624,7 +655,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![credits, open_project, summary, scan_folder, update_deployment, set_setting, published_dataset, start_run, stop_run,
             species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
-            list_files, export_file_list, retry_failed, history_list, import_results, live_import, live_refresh, live_stations, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
+            list_files, export_file_list, retry_failed, history_list, import_results, live_import, live_refresh, live_stations, remove_preview, remove_from_project, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
             online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,
             set_deployment_country, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
         .run(tauri::generate_context!())

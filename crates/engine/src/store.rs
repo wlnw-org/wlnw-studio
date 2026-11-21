@@ -57,6 +57,8 @@ CREATE TABLE IF NOT EXISTS detections (
   start_s REAL NOT NULL, end_s REAL NOT NULL, species INTEGER NOT NULL REFERENCES species(id), confidence REAL NOT NULL, in_range INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS detections_species ON detections (species, confidence);
 CREATE INDEX IF NOT EXISTS detections_file ON detections (file_id, model);
+-- Review works per species and model (queue, thresholds, kept counts): Perch adds thousands of species to one project.
+CREATE INDEX IF NOT EXISTS detections_species_model ON detections (species, model, confidence);
 CREATE TABLE IF NOT EXISTS reviews (detection_id INTEGER PRIMARY KEY REFERENCES detections(id) ON DELETE CASCADE,
   verdict TEXT NOT NULL CHECK (verdict IN ('yes','no','unsure')), at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS thresholds (species INTEGER NOT NULL, model TEXT NOT NULL, threshold REAL NOT NULL, precision REAL,
@@ -98,7 +100,9 @@ impl Project {
             if !has { db.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {ty}"))?; }
         }
         let p = Project { db, path: path.to_path_buf() };
-        p.set_setting("schema", SCHEMA_VERSION)?;
+        // Every command opens the project, often while a run is writing: only write when something changed, so opening
+        // never waits for the run's lock.
+        if p.setting("schema")?.as_deref() != Some(SCHEMA_VERSION) { p.set_setting("schema", SCHEMA_VERSION)?; }
         Ok(p)
     }
 
@@ -242,5 +246,25 @@ impl Project {
         let mut b = Vec::new();
         f.read_to_end(&mut b)?;
         Ok(b.chunks_exact(dim * 2).map(|row| row.chunks_exact(2).map(|c| half::f16::from_le_bytes([c[0], c[1]]).to_f32()).collect()).collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    /// The app opens the project for every command. While a run holds the write lock, opening must not wait for it
+    /// (it used to write the schema version on every open, which waited up to 10 s and froze the window).
+    #[test]
+    fn opens_while_another_connection_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("t.wlnw");
+        Project::open(&f).unwrap();
+        let writer = Connection::open(&f).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE; INSERT INTO settings (key, value) VALUES ('x', 'y');").unwrap();
+        let t = std::time::Instant::now();
+        let p = Project::open(&f).unwrap();
+        assert_eq!(p.setting("schema").unwrap().as_deref(), Some(SCHEMA_VERSION));
+        assert!(t.elapsed() < std::time::Duration::from_secs(2), "open waited {:?}", t.elapsed());
+        writer.execute_batch("COMMIT").unwrap();
     }
 }
