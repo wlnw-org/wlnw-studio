@@ -19,6 +19,7 @@ pub mod online;
 pub mod perch;
 pub mod photo;
 pub mod publish;
+pub mod remove;
 pub mod review;
 pub mod run;
 pub mod scan;

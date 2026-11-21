@@ -23,27 +23,25 @@ pub struct SpeciesRow {
 }
 
 /// Every species found in range, per model (each model's confidence means something different), most detections first.
+/// One pass over the detections: after Perch a project can hold thousands of species and hundreds of thousands of
+/// detections, and this list is reloaded after every answer.
 pub fn species(p: &Project) -> Result<Vec<SpeciesRow>> {
+    // Default thresholds: per model when set, else the project's, else 0.5 (as `Project::default_threshold`).
+    let global = p.default_threshold("");
     let mut st = p.db.prepare(
-        "SELECT d.species, d.model, s.scientific, s.common, COUNT(*), COUNT(r.verdict), COUNT(*) FILTER (WHERE r.verdict = 'yes'), COUNT(*) FILTER (WHERE r.verdict = 'no'),
-                t.threshold, t.source, t.precision, MAX(d.confidence)
+        "WITH dt(model, th) AS (SELECT substr(key, 19), CAST(value AS REAL) FROM settings WHERE key LIKE 'default\\_threshold:%' ESCAPE '\\')
+         SELECT d.species, d.model, s.scientific, s.common, COUNT(*), COUNT(r.verdict), COUNT(*) FILTER (WHERE r.verdict = 'yes'), COUNT(*) FILTER (WHERE r.verdict = 'no'),
+                t.threshold, t.source, t.precision, MAX(d.confidence), COALESCE(t.threshold, dt.th, ?1),
+                COUNT(*) FILTER (WHERE (d.confidence >= COALESCE(t.threshold, dt.th, ?1) AND COALESCE(r.verdict, '') <> 'no') OR r.verdict = 'yes')
          FROM detections d JOIN species s ON s.id = d.species LEFT JOIN reviews r ON r.detection_id = d.id
-         LEFT JOIN thresholds t ON t.species = d.species AND t.model = d.model
+         LEFT JOIN thresholds t ON t.species = d.species AND t.model = d.model LEFT JOIN dt ON dt.model = d.model
          WHERE d.in_range = 1 GROUP BY d.species, d.model ORDER BY COUNT(*) DESC")?;
-    let rows: Vec<SpeciesRow> = st.query_map([], |r| Ok(SpeciesRow {
-        label: r.get(0)?, model: r.get(1)?, scientific: r.get(2)?, common: r.get(3)?, detections: r.get(4)?, kept: 0, reviewed: r.get(5)?, yes: r.get(6)?, no: r.get(7)?,
-        threshold: r.get::<_, Option<f64>>(8)?.unwrap_or(f64::NAN), threshold_source: r.get::<_, Option<String>>(9)?.unwrap_or_else(|| "default".into()),
+    let rows: Vec<SpeciesRow> = st.query_map([global], |r| Ok(SpeciesRow {
+        label: r.get(0)?, model: r.get(1)?, scientific: r.get(2)?, common: r.get(3)?, detections: r.get(4)?, kept: r.get(13)?, reviewed: r.get(5)?, yes: r.get(6)?, no: r.get(7)?,
+        threshold: r.get(12)?, threshold_source: r.get::<_, Option<String>>(9)?.unwrap_or_else(|| "default".into()),
         precision: r.get(10)?, max_conf: r.get(11)?,
     }))?.collect::<Result<_, _>>()?;
-    let mut out = Vec::with_capacity(rows.len());
-    for mut row in rows {
-        if row.threshold.is_nan() { row.threshold = p.default_threshold(&row.model); }
-        row.kept = p.db.query_row("SELECT COUNT(*) FROM detections d LEFT JOIN reviews r ON r.detection_id = d.id
-            WHERE d.species = ?1 AND d.model = ?2 AND d.in_range = 1 AND ((d.confidence >= ?3 AND COALESCE(r.verdict, '') <> 'no') OR r.verdict = 'yes')",
-            params![row.label, row.model, row.threshold], |r| r.get(0))?;
-        out.push(row);
-    }
-    Ok(out)
+    Ok(rows)
 }
 
 /// The next clips to review for a species and model: unreviewed, spread over the confidence bands, highest band first.
@@ -188,7 +186,26 @@ fn spectrogram(samples: &[f32], rate: u32, n: usize, hop: usize, max_hz: f64) ->
         let v = ((db[f * bins + k] - lo) / (hi - lo).max(1e-3)).clamp(0.0, 1.0);
         spec[(bins - 1 - k) * frames + f] = (v * 255.0) as u8;
     } }
+    let (spec, frames) = squeeze(spec, frames, bins, MAX_COLUMNS);
     Ok((spec, frames, bins))
+}
+
+/// Widest spectrogram sent to the window. A canvas wider than the graphics card's largest texture (4,096 or 8,192
+/// pixels on many Intel GPUs) can stall the WebKitGTK webview on Linux; the picture is scaled to the screen anyway.
+pub const MAX_COLUMNS: usize = 4000;
+
+/// Narrows a spectrogram (rows of `frames` columns, `bins` rows) to at most `max` columns, keeping the loudest value of
+/// each group of columns so short calls stay visible.
+pub fn squeeze(spec: Vec<u8>, frames: usize, bins: usize, max: usize) -> (Vec<u8>, usize) {
+    if frames <= max || max == 0 { return (spec, frames); }
+    let step = frames.div_ceil(max);
+    let cols = frames.div_ceil(step);
+    let mut out = vec![0u8; cols * bins];
+    for row in 0..bins {
+        let src = &spec[row * frames..(row + 1) * frames];
+        for (c, chunk) in src.chunks(step).enumerate() { out[row * cols + c] = chunk.iter().copied().max().unwrap_or(0); }
+    }
+    (out, cols)
 }
 
 #[cfg(test)]
@@ -218,6 +235,36 @@ mod tests {
         assert_eq!(p.accepted().unwrap().len(), 40);
         let s = species(&p).unwrap();
         assert_eq!((s[0].reviewed, s[0].kept, s[0].threshold_source.as_str()), (18, 40, "fitted"));
+    }
+    #[test]
+    fn long_spectrograms_are_narrowed_keeping_peaks() {
+        // 2 rows of 10 columns, a single loud column in each row.
+        let mut spec = vec![0u8; 20];
+        spec[3] = 200;
+        spec[10 + 9] = 90;
+        let (out, cols) = squeeze(spec.clone(), 10, 2, 4);
+        assert_eq!((cols, out.len()), (4, 8));
+        assert_eq!(out, vec![0, 200, 0, 0, 0, 0, 0, 90]);
+        assert_eq!(squeeze(spec.clone(), 10, 2, 10), (spec, 10));
+        // A clip of a minute and a half at the bird settings stays within the limit.
+        let samples = vec![0.1f32; 48_000 * 90];
+        let (s, frames, bins) = spectrogram(&samples, SR, 512, 160, 12_000.0).unwrap();
+        assert!(frames <= MAX_COLUMNS && s.len() == frames * bins, "{frames}");
+    }
+    #[test]
+    fn species_list_uses_each_models_default_threshold() {
+        let (_d, p) = project();
+        p.set_setting("default_threshold", "0.3").unwrap();
+        p.set_setting("default_threshold:perch-2.0", "0.8").unwrap();
+        for (id, model, conf) in [(1, "birdnet-2.4", 0.35), (2, "birdnet-2.4", 0.2), (3, "perch-2.0", 0.5), (4, "perch-2.0", 0.85), (5, "perch-2.0", 0.9)] {
+            p.db.execute("INSERT INTO detections (id, file_id, model, start_s, end_s, species, confidence, in_range) VALUES (?1, 1, ?2, ?1, ?1 + 3, 1, ?3, 1)", params![id, model, conf]).unwrap();
+        }
+        // A "no" drops a detection above the threshold, a "yes" keeps one below it.
+        p.db.execute_batch("INSERT INTO reviews VALUES (5, 'no', 'now'), (2, 'yes', 'now');").unwrap();
+        let s = species(&p).unwrap();
+        let got = |m: &str| s.iter().find(|r| r.model == m).map(|r| (r.detections, r.kept, r.threshold, r.threshold_source.clone())).unwrap();
+        assert_eq!(got("perch-2.0"), (3, 1, 0.8, "default".to_string()));
+        assert_eq!(got("birdnet-2.4"), (2, 2, 0.3, "default".to_string()));
     }
     #[test]
     fn too_few_reviews_keep_default() {

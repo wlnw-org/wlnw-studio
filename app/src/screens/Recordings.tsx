@@ -4,6 +4,7 @@ import { api, fmtHours, isLive, modelName, modelTag, type Deployment, type LiveR
 import MapPicker from "../MapPicker";
 import { AroundRecorders, usePrefetch } from "../Online";
 import { t as tr, useT, type Vars } from "../i18n";
+import { removeFromProject, removedNote } from "../removing";
 
 /** Picks the one or many form of an English template and fills {n} with the formatted number. */
 const count = (n: number, one: string, many: string, vars: Vars = {}) => tr(n === 1 ? one : many, { n: n.toLocaleString(), ...vars });
@@ -65,7 +66,7 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
       {deps.length === 0 ? (
         <>
           <div className="empty">{t("No recordings yet. Studio reads the time and place written by AudioMoth and Song Meter recorders, and the date in file names such as {example}.", { example: "SMM01234_20250601_053000.wav" })}</div>
-          <Live refresh={refresh} onError={onError} setReport={setReport} />
+          <Live refresh={refresh} onError={onError} setReport={setReport} running={summary.running} />
         </>
       ) : (
         <>
@@ -75,7 +76,8 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
             {missing > 0 && <b className="warn"> {t("{n} need a place or time zone: the place decides which species are expected and which models run.", { n: missing })}</b>}</p>
           <table className="grid">
             <thead><tr><th>{t("Recorder")}</th><th>{t("Files")}</th><th>{t("Place")}</th><th>{t("Times are UTC +")}</th>{cams && <th title={t("Three-letter code (ISO 3166). SpeciesNet uses it to rule out species that do not live there.")}>{t("Country")}</th>}<th>{t("Models")}</th><th /></tr></thead>
-            <tbody>{deps.map((d) => <Row key={d.id} d={d} cams={cams} onSaved={refresh} onError={onError} />)}</tbody>
+            <tbody>{deps.map((d) => <Row key={d.id} d={d} cams={cams} running={summary.running} onSaved={refresh} onError={onError}
+              onRemoved={(note) => { setReport(note); refresh(); }} />)}</tbody>
           </table>
           {cams && <p className="muted small">{t("Camera traps: set each camera's country (three letters, for example KEN, IND, BRA or USA, and the state code for the USA) so SpeciesNet can rule out species that do not live there. Changing it runs that camera's images again.")}</p>}
           <AroundRecorders deps={deps} />
@@ -89,7 +91,7 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
               <button onClick={() => importResults(true)} disabled={busy}>{t("Import a folder of results")}</button>
             </div>
           </div>
-          <Live refresh={refresh} onError={onError} setReport={setReport} />
+          <Live refresh={refresh} onError={onError} setReport={setReport} running={summary.running} />
           <div className="foot"><button className="primary" onClick={next}>{t("Next: find species")}</button></div>
         </>
       )}
@@ -97,8 +99,11 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
   );
 }
 
-function Row({ d, cams, onSaved, onError }: { d: Deployment; cams: boolean; onSaved: () => void; onError: (e: string) => void }) {
+function Row({ d, cams, running, onSaved, onError, onRemoved }: { d: Deployment; cams: boolean; running: boolean; onSaved: () => void; onError: (e: string) => void; onRemoved: (note: string) => void }) {
   const t = useT();
+  async function remove() {
+    try { const c = await removeFromProject(d.name, { deployments: [d.id] }); if (c) onRemoved(removedNote(c)); } catch (e) { onError(t(String(e))); }
+  }
   const [country, setCountry] = useState(d.country ?? "");
   const [state, setState] = useState(d.admin1 ?? "");
   const countryDirty = country.trim().toUpperCase() !== (d.country ?? "") || (country.trim().toUpperCase() === "USA" && state.trim().toUpperCase() !== (d.admin1 ?? ""));
@@ -132,7 +137,8 @@ function Row({ d, cams, onSaved, onError }: { d: Deployment; cams: boolean; onSa
         {countryDirty && <button className="small-btn" onClick={saveCountry}>{t("Save")}</button>}
       </>}</td>}
       <td className="small">{isLive(d) ? t("Live station: detections from the station") : [...(d.files > 0 ? d.models.map(modelName) : []), ...(d.images > 0 ? ["SpeciesNet"] : [])].join(" + ") || t("none")}{d.perch_region && d.files > 0 && <small className="muted block">{t("Perch first in this region")}</small>}</td>
-      <td>{dirty ? <button onClick={() => save()}>{t("Save")}</button> : saved ? <span className="ok">{t("Saved")}</span> : null}</td>
+      <td className="actions">{dirty ? <button onClick={() => save()}>{t("Save")}</button> : saved ? <span className="ok">{t("Saved")}</span> : null}
+        <button className="small-btn" onClick={remove} disabled={running} title={running ? t("Pause processing first") : t("Take this recorder out of the project. The files stay on your disk.")}>{t("Remove")}</button></td>
       {map && <MapPicker lat={d.lat} lon={d.lon} title={v.name} onClose={() => setMap(false)}
         onPick={(la, lo) => { const patch = { lat: String(la), lon: String(lo) }; setV({ ...v, ...patch }); setMap(false); save(patch); }} />}
     </tr>
@@ -149,7 +155,7 @@ function remember(address: string) {
 }
 
 /** Detections from a Wildlife Network Base or BirdNET-Go station on the same network, for review like other imported results. */
-function Live({ refresh, onError, setReport }: { refresh: () => void; onError: (e: string) => void; setReport: (r: string | null) => void }) {
+function Live({ refresh, onError, setReport, running }: { refresh: () => void; onError: (e: string) => void; setReport: (r: string | null) => void; running: boolean }) {
   const t = useT();
   const [stations, setStations] = useState<LiveStation[]>([]);
   const [address, setAddress] = useState("");
@@ -170,6 +176,9 @@ function Live({ refresh, onError, setReport }: { refresh: () => void; onError: (
     setBusy(key); setReport(null);
     try { said(await job()); refresh(); load(); } catch (e) { onError(t(String(e))); }
     setBusy(null);
+  }
+  async function remove(s: LiveStation) {
+    try { const c = await removeFromProject(s.name, { stations: [s.key] }); if (c) { setReport(removedNote(c)); refresh(); load(); } } catch (e) { onError(t(String(e))); }
   }
   const add = () => { const a = address.trim(); if (!a) return; remember(a); run("new", () => api.liveImport(a, from, to)); };
   return (
@@ -193,7 +202,8 @@ function Live({ refresh, onError, setReport }: { refresh: () => void; onError: (
             ? <small className="muted block">{t("Not published again: the Base already shares its detections with Wildlife Network.")}</small>
             : <small className="muted block">{t("If this BirdNET-Go also sends to Wildlife Network (wdx-agent) or BirdWeather, publishing these would count them twice.")}</small>}</td>
           <td className="small">{s.last ?? ""}{s.moved && <small className="muted block">{t("Moved on {date}: detections from then on are filed under the new place, earlier ones keep the old place.", { date: s.moved })}</small>}</td>
-          <td><button onClick={() => run(s.key, () => api.liveRefresh(s.key))} disabled={!!busy} title={t("Adds the detections made since the newest one imported. Nothing is added twice.")}>{busy === s.key ? t("Reading the station...") : t("Refresh")}</button></td>
+          <td><button onClick={() => run(s.key, () => api.liveRefresh(s.key))} disabled={!!busy} title={t("Adds the detections made since the newest one imported. Nothing is added twice.")}>{busy === s.key ? t("Reading the station...") : t("Refresh")}</button>
+            <button className="small-btn" onClick={() => remove(s)} disabled={!!busy || running} title={t("Take this station and its detections out of the project. Nothing is changed on the station.")}>{t("Remove")}</button></td>
         </tr>)}</tbody>
       </table>}
     </div>

@@ -37,6 +37,8 @@ export interface FileRow { id: number; path: string; deployment_id: number; reco
 export interface FileCounts { all: number; done: number; partial: number; todo: number; failed: number; none: number }
 export interface FilePage { rows: FileRow[]; total: number; counts: FileCounts }
 export interface FileQuery { status?: string | null; deployment?: number | null; search?: string | null; offset?: number; limit?: number }
+export interface RemoveTarget { deployments?: number[]; files?: number[]; stations?: string[] }
+export interface RemoveCounts { recorders: number; recordings: number; images: number; detections: number; reviews: number; clips: number }
 export interface HistoryEntry { id: number; kind: string; started_at: string; finished_at: string | null; status: string; summary: string; detail: Record<string, unknown> | null }
 
 export type OnlineStatus = "known" | "unusual" | "few" | "unknown";
@@ -90,6 +92,8 @@ export const api = {
   liveImport: (address: string, from: string, to: string) => invoke<LiveReport>("live_import", { address, from, to }),
   liveRefresh: (key: string) => invoke<LiveReport>("live_refresh", { key }),
   liveStations: () => invoke<LiveStation[]>("live_stations"),
+  removePreview: (target: RemoveTarget) => invoke<RemoveCounts>("remove_preview", { target }),
+  removeFromProject: (target: RemoveTarget) => invoke<RemoveCounts>("remove_from_project", { target }),
   answersExport: (out: string, reviewer: string | null) => invoke<number>("answers_export", { out, reviewer }),
   answersLoad: (file: string) => invoke<LoadReport>("answers_load", { file }),
   agreementReport: (reviewer: string | null) => invoke<AgreementReport>("agreement_report", { reviewer }),
@@ -104,6 +108,15 @@ export const api = {
   setImageVerdict: (boxId: number, verdict: string | null) => invoke<void>("set_image_verdict", { boxId, verdict }),
   imageThumb: (file: string, max: number) => invoke<string>("image_thumb", { file, max }),
 };
+
+/** A playable URL for a base64 WAV. A blob URL rather than a long data: URL, which WebKitGTK on Linux handles badly.
+ * Call URL.revokeObjectURL on it when done. */
+export function wavUrl(b64: string): string {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let k = 0; k < bin.length; k++) bytes[k] = bin.charCodeAt(k);
+  return URL.createObjectURL(new Blob([bytes], { type: "audio/wav" }));
+}
 
 export const fmtHours = (h: number) => (h < 1 ? `${Math.round(h * 60)} min` : `${h.toFixed(h < 10 ? 1 : 0)} h`);
 export const fmtBytes = (b: number) => (b > 1e12 ? `${(b / 1e12).toFixed(2)} TB` : b > 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`);
