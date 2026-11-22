@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS image_boxes (
   kind TEXT NOT NULL, species INTEGER REFERENCES species(id), label TEXT, score REAL NOT NULL, source TEXT, top TEXT);
 CREATE INDEX IF NOT EXISTS image_boxes_image ON image_boxes (image_id);
 CREATE INDEX IF NOT EXISTS image_boxes_species ON image_boxes (species, score);
+CREATE INDEX IF NOT EXISTS images_deployment ON images (deployment_id);
 CREATE TABLE IF NOT EXISTS image_reviews (box_id INTEGER PRIMARY KEY REFERENCES image_boxes(id) ON DELETE CASCADE,
   verdict TEXT NOT NULL CHECK (verdict IN ('yes','no','unsure')), at TEXT NOT NULL);
 "#;
