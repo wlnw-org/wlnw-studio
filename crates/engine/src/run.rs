@@ -65,13 +65,17 @@ pub fn progress(p: &Project, plan: &HashMap<i64, Vec<String>>) -> Result<Progres
     let mut pr = Progress::default();
     let mut st = p.db.prepare("SELECT f.id, f.deployment_id, COALESCE(f.bytes, 0), f.duration_s FROM files f")?;
     let files: Vec<(i64, i64, i64, Option<f64>)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?;
-    let mut done: HashMap<(i64, String), String> = HashMap::new();
+    // Per recording, model to status (looked up by &str, so no string is copied per recording and model).
+    let mut done: HashMap<i64, HashMap<String, String>> = HashMap::new();
     let mut st = p.db.prepare("SELECT file_id, model, status FROM file_models")?;
-    for r in st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? { let (f, m, s) = r?; done.insert((f, m), s); }
+    for r in st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))? { let (f, m, s) = r?; done.entry(f).or_default().insert(m, s); }
+    let none = HashMap::new();
+    let empty: Vec<String> = Vec::new();
     for (id, dep, bytes, dur) in files {
-        let models = plan.get(&dep).cloned().unwrap_or_default();
-        let n_done = models.iter().filter(|m| done.contains_key(&(id, (*m).clone()))).count() as i64;
-        pr.errors += models.iter().filter(|m| done.get(&(id, (*m).clone())).is_some_and(|s| s == "error")).count() as i64;
+        let models = plan.get(&dep).unwrap_or(&empty);
+        let have = done.get(&id).unwrap_or(&none);
+        let n_done = models.iter().filter(|m| have.contains_key(m.as_str())).count() as i64;
+        pr.errors += models.iter().filter(|m| have.get(m.as_str()).is_some_and(|s| s == "error")).count() as i64;
         pr.jobs_total += models.len() as i64;
         pr.jobs_done += n_done;
         pr.files_total += 1;
@@ -201,6 +205,7 @@ fn run_inner(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut
     let started = Instant::now();
     let (mut audio_s, mut bytes_run) = (0f64, 0i64);
     let mut ranges: HashMap<(String, i64, i64, i32), Vec<bool>> = HashMap::new();
+    let (mut last_emit, mut counted): (Option<Instant>, Option<(Instant, std::time::Duration, Progress)>) = (None, None);
     'outer: for (id, path, start_local, bytes, dep, lat, lon) in todo {
         for model_id in plan.get(&dep).cloned().unwrap_or_default() {
             if stop.load(Ordering::Relaxed) { break 'outer; }
@@ -213,12 +218,20 @@ fn run_inner(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut
                     anyhow::bail!("Less than 1 GB is free on the disk that holds the project, so processing stopped before the next file. Free some space or move the project to a bigger disk, then resume.");
                 }
             }
-            let mut prog = progress_all(p, &plan, &have)?;
-            let wall = started.elapsed().as_secs_f64();
-            if wall > 1.0 && audio_s > 0.0 { prog.speed_x = audio_s / wall; prog.eta_s = Some((prog.bytes_total - prog.bytes_done) as f64 * wall / bytes_run.max(1) as f64); }
-            prog.current = Some(path.clone());
-            prog.current_model = Some(model.info().name.clone());
-            on_progress(&prog);
+            // Counting progress reads every recording and job, so doing it before each file made a long run slow down as
+            // it went (and sent the window a message per short clip). Count at most once a second, and never let counting
+            // take more than about 5% of the run; tell the window at most 4 times a second.
+            if last_emit.is_none_or(|t: Instant| t.elapsed().as_millis() >= 250) {
+                let stale = counted.as_ref().is_none_or(|(at, took, _): &(Instant, std::time::Duration, Progress)| at.elapsed() >= (*took * 20).max(std::time::Duration::from_secs(1)));
+                if stale { let t0 = Instant::now(); let pr = progress_all(p, &plan, &have)?; counted = Some((Instant::now(), t0.elapsed(), pr)); }
+                let mut prog = counted.as_ref().map(|c| c.2.clone()).unwrap_or_default();
+                let wall = started.elapsed().as_secs_f64();
+                if wall > 1.0 && audio_s > 0.0 { prog.speed_x = audio_s / wall; prog.eta_s = Some((prog.bytes_total - prog.bytes_done) as f64 * wall / bytes_run.max(1) as f64); }
+                prog.current = Some(path.clone());
+                prog.current_model = Some(model.info().name.clone());
+                on_progress(&prog);
+                last_emit = Some(Instant::now());
+            }
             // Species expected at this place and week, from the model's own location model when it has one.
             let start = start_local.as_deref().and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").ok());
             let in_range: Option<Vec<bool>> = match (lat, lon, start, model.info().location_filter) {

@@ -135,13 +135,25 @@ export default function Images({ summary, onError }: { summary: Summary; onError
   );
 }
 
+// Grid thumbnails already made, so paging back or reopening a species does not decode the full photos again.
+const THUMBS = new Map<string, string>();
+const THUMBS_MAX = 120;
+
 function useThumb(path: string, max: number) {
-  const [src, setSrc] = useState<string | null>(null);
+  const key = `${max}|${path}`;
+  const [src, setSrc] = useState<string | null>(() => THUMBS.get(key) ?? null);
   const [failed, setFailed] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    setSrc(null); setFailed(null);
-    api.imageThumb(path, max).then((b) => { if (live) setSrc(`data:image/jpeg;base64,${b}`); }).catch((e) => { if (live) setFailed(String(e)); });
+    setFailed(null);
+    const hit = THUMBS.get(key);
+    if (hit) { setSrc(hit); return; }
+    setSrc(null);
+    api.imageThumb(path, max).then((b) => {
+      const url = `data:image/jpeg;base64,${b}`;
+      if (max <= 480) { THUMBS.set(key, url); if (THUMBS.size > THUMBS_MAX) THUMBS.delete(THUMBS.keys().next().value!); }
+      if (live) setSrc(url);
+    }).catch((e) => { if (live) setFailed(String(e)); });
     return () => { live = false; };
   }, [path, max]);
   return { src, failed };

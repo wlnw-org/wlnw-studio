@@ -6,6 +6,7 @@ import { t as tr, useT } from "../i18n";
 import { shortPath } from "../paths";
 
 const PER_ROUND = 18;
+const LIST_STEP = 150;
 
 /** Species first, per model. Each round shows clips from every confidence band; each verdict refits that species'
  * threshold. Any clip can be named ("this is X") and used to find more like it, which teaches the Wildlife Network Classifier.
@@ -65,6 +66,10 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
 
   const row = rows.find((r) => sel && r.label === sel.label && r.model === sel.model) ?? null;
   const anyFlag = rows.some((r) => flags[r.label]);
+  // After Perch a project can list thousands of species: draw the first ones and more as the list is scrolled, so each
+  // answer, clip and key press does not redraw the whole list (slow in the Linux webview).
+  const [limit, setLimit] = useState(LIST_STEP);
+  useEffect(() => setLimit(LIST_STEP), [filter, unusual]);
   const shown = rows.filter((r) => (!filter || `${r.common} ${r.scientific}`.toLowerCase().includes(filter.toLowerCase())) && (!unusual || !anyFlag || flags[r.label]));
   const done = queue.filter((d) => d.verdict).length;
   const hasPerch = summary.deployments.some((d) => d.models.includes("perch-2.0"));
@@ -84,8 +89,8 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
         <SecondReviewer onCompare={() => setPane("agree")} onError={onError} />
         <input className="search" placeholder={t("Search {n} species", { n: rows.length })} value={filter} onChange={(e) => setFilter(e.target.value)} />
         {anyFlag && <label className="wn-filter"><input type="checkbox" checked={unusual} onChange={(e) => setUnusual(e.target.checked)} /> {t("Unusual for the area")}</label>}
-        <ul>
-          {shown.map((r) => (
+        <ul onScroll={(e) => { const u = e.currentTarget; if (u.scrollTop + u.clientHeight > u.scrollHeight - 400 && limit < shown.length) setLimit((n) => n + LIST_STEP); }}>
+          {shown.slice(0, limit).map((r) => (
             <li key={`${r.label}|${r.model}`} className={sel && r.label === sel.label && r.model === sel.model ? "active" : ""} onClick={() => pick(r.label, r.model)}>
               <div className="sp-name"><b>{r.common || r.scientific}<FlagMark s={flags[r.label]} /></b><i>{r.common ? r.scientific : ""}</i></div>
               <div className="sp-meta">

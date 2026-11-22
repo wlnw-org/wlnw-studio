@@ -178,9 +178,9 @@ fn spectrogram(samples: &[f32], rate: u32, n: usize, hop: usize, max_hz: f64) ->
         fft.process(&mut buf, &mut out)?;
         for k in 0..bins { db[f * bins + k] = 10.0 * (out[k].norm_sqr() + 1e-10).log10(); }
     }
-    let mut sorted = db.clone();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    let (lo, hi) = (sorted.get(sorted.len() / 5).copied().unwrap_or(-100.0), sorted.last().copied().unwrap_or(0.0));
+    // The 20th percentile and the maximum: a partial selection, not a full sort of every value in the clip.
+    let hi = db.iter().copied().reduce(f32::max).unwrap_or(0.0);
+    let lo = if db.is_empty() { -100.0 } else { let mut s = db.clone(); let k = s.len() / 5; *s.select_nth_unstable_by(k, f32::total_cmp).1 };
     let mut spec = vec![0u8; frames * bins];
     for f in 0..frames { for k in 0..bins {
         let v = ((db[f * bins + k] - lo) / (hi - lo).max(1e-3)).clamp(0.0, 1.0);
