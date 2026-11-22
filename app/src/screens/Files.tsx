@@ -4,6 +4,7 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { api, fmtBytes, fmtDuration, fmtWhen, modelTag, type FilePage, type FileStatus, type Summary } from "../api";
 import { useT } from "../i18n";
 import { removeFromProject, removedNote } from "../removing";
+import { shortPath } from "../paths";
 
 const PAGE = 200;
 const TABS: { id: FileStatus | ""; label: string }[] = [
@@ -48,7 +49,7 @@ export default function Files({ summary, refresh, onError, initialStatus }: { su
   async function saveList() {
     const out = await save({ title: t("Save the list of recordings"), defaultPath: `${summary.name}-${t("recordings")}.csv`, filters: [{ name: "CSV", extensions: ["csv"] }] });
     if (!out) return;
-    try { const n = await api.exportFileList(query, out); setMsg(t("{n} recordings saved to {path}.", { n: n.toLocaleString(), path: out })); } catch (e) { onError(String(e)); }
+    try { const n = await api.exportFileList(query, out); setMsg(t("{n} recordings saved to {path}.", { n: n.toLocaleString(), path: shortPath(out) })); } catch (e) { onError(String(e)); }
   }
 
   const c = page?.counts;

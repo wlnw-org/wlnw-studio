@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, type DatasetInfo, type PublishReport, type Summary } from "../api";
 import { useT } from "../i18n";
+import { shortPath } from "../paths";
 
 const LICENSES: [string, string][] = [["CC0-1.0", "CC0 (public domain)"], ["CC-BY-4.0", "CC BY 4.0 (credit required)"], ["CC-BY-NC-4.0", "CC BY-NC 4.0 (non-commercial)"]];
 
@@ -42,7 +43,7 @@ export default function Publish({ summary, refresh, onError }: { summary: Summar
     }
     if (!out) return;
     setBusy(true); setMsg(null);
-    try { const n = await api.exportTo(format, out); setMsg(format.startsWith("occupancy") ? t("Occupancy table saved to {path}, built from {n} detections, with minutes recorded per site in {effort}.", { n: n.toLocaleString(), path: out, effort: out.replace(/\.csv$/i, "") + "-effort.csv" }) : format === "camtrapdp" ? t("{n} observations exported to {path}. Images with people were left out, and so were images without a time or a camera without a place.", { n: n.toLocaleString(), path: out }) : t("{n} detections exported to {path}.", { n: n.toLocaleString(), path: out })); } catch (e) { onError(String(e)); }
+    try { const n = await api.exportTo(format, out); setMsg(format.startsWith("occupancy") ? t("Occupancy table saved to {path}, built from {n} detections, with minutes recorded per site in {effort}.", { n: n.toLocaleString(), path: shortPath(out), effort: shortPath(out.replace(/\.csv$/i, "") + "-effort.csv") }) : format === "camtrapdp" ? t("{n} observations exported to {path}. Images with people were left out, and so were images without a time or a camera without a place.", { n: n.toLocaleString(), path: shortPath(out) }) : t("{n} detections exported to {path}.", { n: n.toLocaleString(), path: shortPath(out) })); } catch (e) { onError(String(e)); }
     setBusy(false);
   }
 
