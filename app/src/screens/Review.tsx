@@ -3,6 +3,7 @@ import { FlagMark, SpeciesBox, useOnlineFlags, usePrefetch } from "../Online";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api, isImported, wavUrl, modelName, modelTag, type AgreementReport, type Clip, type Detection, type Similar, type SpeciesRow, type Summary } from "../api";
 import { t as tr, useT } from "../i18n";
+import { shortPath } from "../paths";
 
 const PER_ROUND = 18;
 
@@ -55,7 +56,7 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
   }
   async function share() {
     const out = await save({ title: t("Save the classifier to share"), defaultPath: "wildlife-network-classifier.wnc", filters: [{ name: "Wildlife Network Classifier", extensions: ["wnc"] }] });
-    if (out) try { await api.wncExport(out); setNote(t("Saved to {path}.", { path: out })); } catch (e) { onError(String(e)); }
+    if (out) try { await api.wncExport(out); setNote(t("Saved to {path}.", { path: shortPath(out) })); } catch (e) { onError(String(e)); }
   }
   async function importPack() {
     const f = await open({ title: t("Add a shared classifier"), multiple: false, filters: [{ name: "Wildlife Network Classifier", extensions: ["wnc"] }] });
