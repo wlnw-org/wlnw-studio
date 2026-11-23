@@ -123,6 +123,10 @@ nav { display: flex; flex-direction: column; gap: 4px; }
 .tag.model-perch-2\.0 { background: #e6efff; color: #2a4fa8; } .tag.model-wnc { background: #f3e8ff; color: #6b2fa8; }
 @media (prefers-color-scheme: dark) { .tag.model-perch-2\.0 { background: #1b2a4a; color: #9db8ff; } .tag.model-wnc { background: #2e1d45; color: #d2b0ff; } }
 h2 .tag { font-size: 12px; vertical-align: middle; font-style: normal; }
+.progress-card { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.progress-card .bar { height: 6px; margin: 4px 0 2px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.progress-card .bar > span { display: block; height: 100%; background: var(--accent); }
+.cheer { margin: 0 0 10px; padding: 8px 12px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 12%, var(--panel)); }
 .wnc-card { padding: 10px 12px; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
 .note-sm { margin-top: 6px; font-size: 12px; color: var(--accent); }
 .teach { margin-top: 14px; } .teach .row input { flex: 1; }

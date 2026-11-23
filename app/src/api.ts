@@ -9,6 +9,7 @@ export interface WncInfo { trained_at: string; classes: [string, string, number,
 export interface Summary { path: string; name: string; deployments: Deployment[]; progress: Progress; running: boolean; dataset: DatasetInfo; models: ModelInfo[]; model_errors: string[]; chosen: string[]; wnc: WncInfo | null; space: { needed: number; free: number | null; enough: boolean }; images: ImageCounts | null }
 export interface Similar { window_id: number; file_id: number; path: string; start_s: number; end_s: number; similarity: number; site: string }
 export interface TrainReport { classes: [string, string, number, number, number | null][]; skipped: [string, number][]; detections: number }
+export interface ReviewProgress { answers: number; today: number; streak_days: number; species_fitted: number; species_checkable: number; removed: number; recovered: number }
 export interface SpeciesRow { label: number; model: string; scientific: string; common: string; detections: number; kept: number; reviewed: number; yes: number; no: number; threshold: number; threshold_source: string; precision: number | null; max_conf: number }
 export interface Detection { id: number; file_id: number; path: string; deployment_id: number; start_s: number; end_s: number; label: number; scientific: string; common: string; model: string; confidence: number; detection_score?: number | null; in_range: boolean; utc: string | null; lat: number | null; lon: number | null; site: string; verdict: string | null }
 export interface Clip { wav: string; spec: string; width: number; height: number; offset_s: number; window_s: number; total_s: number; max_khz: number; playback: number; slowed: number }
@@ -78,6 +79,7 @@ export const api = {
   startRun: () => invoke<void>("start_run"),
   stopRun: () => invoke<void>("stop_run"),
   species: () => invoke<SpeciesRow[]>("species"),
+  reviewProgress: () => invoke<ReviewProgress>("review_progress"),
   reviewQueue: (label: number, model: string, n: number) => invoke<Detection[]>("review_queue", { label, model, n }),
   clip: (file: string, startS: number, endS: number, model?: string) => invoke<Clip>("clip", { file, startS, endS, model: model ?? null }),
   nameSound: (detection: number, scientific: string, common: string, present: boolean) => invoke<boolean>("name_sound", { detection, scientific, common, present }),

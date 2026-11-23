@@ -234,6 +234,9 @@ fn stop_run(s: State<App>) { s.stop.store(true, Ordering::SeqCst); }
 fn species(s: State<App>) -> R<Vec<review::SpeciesRow>> { review::species(&open(&s)?).map_err(err) }
 
 #[tauri::command(async)]
+fn review_progress(s: State<App>) -> R<review::Progress> { review::progress(&open(&s)?).map_err(err) }
+
+#[tauri::command(async)]
 fn review_queue(label: i64, model: String, n: usize, s: State<App>) -> R<Vec<wlnw_engine::store::Detection>> { review::queue(&open(&s)?, label, &model, n).map_err(err) }
 
 #[derive(Serialize)]
@@ -654,7 +657,7 @@ pub fn run() {
             a
         })
         .invoke_handler(tauri::generate_handler![credits, open_project, summary, scan_folder, update_deployment, set_setting, published_dataset, start_run, stop_run,
-            species, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
+            species, review_progress, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
             list_files, export_file_list, retry_failed, history_list, import_results, live_import, live_refresh, live_stations, remove_preview, remove_from_project, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
             online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,
             set_deployment_country, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
