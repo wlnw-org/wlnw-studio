@@ -5920,7 +5920,7 @@ checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
 
 [[package]]
 name = "wlnw-batdetect2"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "ort",
@@ -5932,7 +5932,7 @@ dependencies = [
 
 [[package]]
 name = "wlnw-engine"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -5964,7 +5964,7 @@ dependencies = [
 
 [[package]]
 name = "wlnw-studio"
-version = "0.1.21"
+version = "0.1.22"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
