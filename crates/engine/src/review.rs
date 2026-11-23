@@ -120,6 +120,61 @@ pub fn fit(rows: &[(f64, Option<String>)], target: f64) -> Option<(f64, Option<f
     Some((chosen.0, chosen.1, reviewed as i64))
 }
 
+/// What a project's reviewing has done so far, for the progress card on the Review screen. Counts answers and the species
+/// that have their own threshold, and compares what is kept now with what each model's default threshold would keep.
+#[derive(Debug, Serialize, Default, PartialEq)]
+pub struct Progress {
+    /// Yes, no and unsure answers, all time and today (this computer's local date).
+    pub answers: i64, pub today: i64,
+    /// Days in a row with at least one answer, ending today or yesterday.
+    pub streak_days: i64,
+    /// Species (per model) with a threshold fitted from answers, and those with enough detections to get one.
+    pub species_fitted: i64, pub species_checkable: i64,
+    /// In species with a fitted threshold: detections the default would keep that are now left out (answered no, or
+    /// below the fitted threshold), and detections now kept that the default would leave out.
+    pub removed: i64, pub recovered: i64,
+}
+
+pub fn progress(p: &Project) -> Result<Progress> {
+    let global = p.default_threshold("");
+    let (answers, today): (i64, i64) = p.db.query_row(
+        "SELECT COUNT(*), COUNT(*) FILTER (WHERE date(at, 'localtime') = date('now', 'localtime')) FROM reviews", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let mut st = p.db.prepare("SELECT DISTINCT date(at, 'localtime') AS d FROM reviews WHERE d IS NOT NULL ORDER BY d DESC LIMIT 400")?;
+    let days: Vec<String> = st.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    let today_s: String = p.db.query_row("SELECT date('now', 'localtime')", [], |r| r.get(0))?;
+    let species_fitted: i64 = p.db.query_row("SELECT COUNT(*) FROM thresholds WHERE source = 'fitted'", [], |r| r.get(0))?;
+    let species_checkable: i64 = p.db.query_row(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM detections WHERE in_range = 1 GROUP BY species, model HAVING COUNT(*) >= ?1)", [MIN_REVIEWS], |r| r.get(0))?;
+    let (removed, recovered): (i64, i64) = p.db.query_row(
+        "WITH dt(model, th) AS (SELECT substr(key, 19), CAST(value AS REAL) FROM settings WHERE key LIKE 'default\\_threshold:%' ESCAPE '\\'),
+         k AS (SELECT d.confidence >= COALESCE(dt.th, ?1) AS by_default,
+                      (d.confidence >= t.threshold AND COALESCE(r.verdict, '') <> 'no') OR COALESCE(r.verdict, '') = 'yes' AS now
+               FROM detections d JOIN thresholds t ON t.species = d.species AND t.model = d.model AND t.source = 'fitted'
+               LEFT JOIN reviews r ON r.detection_id = d.id LEFT JOIN dt ON dt.model = d.model WHERE d.in_range = 1)
+         SELECT COUNT(*) FILTER (WHERE by_default AND NOT now), COUNT(*) FILTER (WHERE now AND NOT by_default) FROM k",
+        [global], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    Ok(Progress { answers, today, streak_days: streak(&days, &today_s), species_fitted, species_checkable, removed, recovered })
+}
+
+/// Days in a row (newest first, "YYYY-MM-DD") ending today or yesterday; 0 when the last answer is older.
+pub fn streak(days: &[String], today: &str) -> i64 {
+    use chrono::NaiveDate;
+    let Ok(mut want) = NaiveDate::parse_from_str(today, "%Y-%m-%d") else { return 0 };
+    let parsed: Vec<NaiveDate> = days.iter().filter_map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok()).collect();
+    match parsed.first() {
+        Some(&d) if d == want => {}
+        Some(&d) if Some(d) == want.pred_opt() => want = d,
+        _ => return 0,
+    }
+    let mut n = 0;
+    for d in parsed {
+        if d != want { break; }
+        n += 1;
+        match want.pred_opt() { Some(p) => want = p, None => break }
+    }
+    n
+}
+
 #[derive(Debug, Serialize)]
 pub struct Clip {
     pub wav: Vec<u8>, pub spec: Vec<u8>, pub width: usize, pub height: usize, pub offset_s: f64, pub window_s: f64, pub total_s: f64, pub max_khz: f64,
@@ -235,6 +290,32 @@ mod tests {
         assert_eq!(p.accepted().unwrap().len(), 40);
         let s = species(&p).unwrap();
         assert_eq!((s[0].reviewed, s[0].kept, s[0].threshold_source.as_str()), (18, 40, "fitted"));
+    }
+    #[test]
+    fn progress_counts_answers_fitted_species_and_the_change_from_the_default() {
+        let (_d, p) = project();
+        assert_eq!(progress(&p).unwrap(), Progress::default());
+        // Same set-up as threshold_from_reviews: the fitted threshold (0.6) is above the default (0.5).
+        let mut id = 0;
+        for b in 0..9 { for k in 0..10 {
+            id += 1;
+            p.db.execute("INSERT INTO detections (id, file_id, model, start_s, end_s, species, confidence, in_range) VALUES (?1, 1, 'birdnet-2.4', ?2, ?2 + 3, 1, ?3, 1)", params![id, id as f64 * 3.0, BANDS[b] + 0.01 * k as f64]).unwrap();
+            if k < 2 { p.db.execute("INSERT INTO reviews VALUES (?1, ?2, datetime('now'))", params![id, if b >= 5 { "yes" } else { "no" }]).unwrap(); }
+        } }
+        fit_threshold(&p, 1, "birdnet-2.4", 0.9).unwrap();
+        let g = progress(&p).unwrap();
+        assert_eq!((g.answers, g.today, g.streak_days, g.species_fitted, g.species_checkable), (18, 18, 1, 1, 1));
+        // The default keeps 0.5 and up (50 detections); now 0.6 and up (40): the 10 in [0.5, 0.6) are left out.
+        assert_eq!((g.removed, g.recovered), (10, 0));
+    }
+    #[test]
+    fn streak_of_days() {
+        let d = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(streak(&d(&[]), "2026-11-23"), 0);
+        assert_eq!(streak(&d(&["2026-11-23", "2026-11-22", "2026-11-20"]), "2026-11-23"), 2);
+        assert_eq!(streak(&d(&["2026-11-22", "2026-11-21"]), "2026-11-23"), 2);
+        assert_eq!(streak(&d(&["2026-11-20"]), "2026-11-23"), 0);
+        assert_eq!(streak(&d(&["2026-03-01", "2026-02-28"]), "2026-03-01"), 2);
     }
     #[test]
     fn long_spectrograms_are_narrowed_keeping_peaks() {

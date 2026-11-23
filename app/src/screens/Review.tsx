@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FlagMark, SpeciesBox, useOnlineFlags, usePrefetch } from "../Online";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { api, isImported, wavUrl, modelName, modelTag, type AgreementReport, type Clip, type Detection, type Similar, type SpeciesRow, type Summary } from "../api";
+import { api, isImported, wavUrl, modelName, modelTag, type AgreementReport, type Clip, type Detection, type ReviewProgress, type Similar, type SpeciesRow, type Summary } from "../api";
 import { t as tr, useT } from "../i18n";
 import { shortPath } from "../paths";
 
 const PER_ROUND = 18;
 const LIST_STEP = 150;
+/** Yes or no answers a species needs before Studio fits its own threshold (review::MIN_REVIEWS in the engine). */
+const MIN_ANSWERS = 8;
 
 /** Species first, per model. Each round shows clips from every confidence band; each verdict refits that species'
  * threshold. Any clip can be named ("this is X") and used to find more like it, which teaches the Wildlife Network Classifier.
@@ -25,23 +27,35 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
   const flags = useOnlineFlags();
   usePrefetch();
 
-  const load = useCallback(async () => { try { setRows(await api.species()); } catch (e) { onError(String(e)); } }, [onError]);
+  const [progress, setProgress] = useState<ReviewProgress | null>(null);
+  const [cheer, setCheer] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    try { const [r, g] = await Promise.all([api.species(), api.reviewProgress()]); setRows(r); setProgress(g); return r; } catch (e) { onError(String(e)); return null; }
+  }, [onError]);
   useEffect(() => { load(); }, [load]);
 
   async function pick(label: number, model: string) {
-    setSel({ label, model }); setI(0); setPane("clips");
+    setSel({ label, model }); setI(0); setPane("clips"); setCheer(null);
     try { setQueue(await api.reviewQueue(label, model, PER_ROUND)); } catch (e) { onError(String(e)); }
   }
   const verdict = useCallback(async (v: "yes" | "no" | "unsure") => {
     const d = queue[i];
     if (!d) return;
     try {
+      const before = rows.find((r) => r.label === d.label && r.model === d.model);
       await api.setVerdict(d.id, v);
       setQueue((q) => q.map((x, k) => (k === i ? { ...x, verdict: v } : x)));
       setI((k) => Math.min(k + 1, queue.length - 1));
-      load();
+      const after = (await load())?.find((r) => r.label === d.label && r.model === d.model);
+      // The answer that gives a species its own threshold: say what it did.
+      if (after && after.threshold_source === "fitted" && before?.threshold_source !== "fitted") {
+        const name = after.common || after.scientific;
+        setCheer(after.threshold > 1
+          ? tr("{name} now has its own threshold. Your answers say these detections are not reliable, so none are kept unless you mark them yes.", { name })
+          : tr("{name} now has its own threshold: Studio keeps {kept} detections, estimated {pct}% right.", { name, kept: after.kept.toLocaleString(), pct: Math.round((after.precision ?? 0) * 100) }));
+      }
     } catch (e) { onError(String(e)); }
-  }, [queue, i, load, onError]);
+  }, [queue, i, rows, load, onError]);
 
   async function train() {
     setTraining(true); setNote(null);
@@ -76,6 +90,7 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
   return (
     <section className="review">
       <div className="species-list">
+        {progress && progress.answers > 0 && <ProgressCard g={progress} />}
         <div className="wnc-card">
           <b>Wildlife Network Classifier</b>
           <small className="muted block">{summary.wnc ? t("{n} species learned from your reviews", { n: summary.wnc.classes.length }) : t("Learns your local species from your answers")}</small>
@@ -96,7 +111,9 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
               <div className="sp-meta">
                 <span title={t("Detections kept at the current threshold, of all in range")}>{r.kept.toLocaleString()} / {r.detections.toLocaleString()}</span>
                 <span className={`tag model-${r.model}`} title={modelName(r.model)}>{modelTag(r.model)}</span>
-                {r.reviewed > 0 ? <span className={r.threshold_source === "fitted" ? "tag ok" : "tag"}>{t("{n} checked", { n: r.reviewed })}</span> : <span className="tag dim">{t("not checked")}</span>}
+                {r.threshold_source === "fitted" ? <span className="tag ok" title={t("Has its own threshold from your answers")}>{t("{n} checked", { n: r.reviewed })}</span>
+                  : r.reviewed > 0 ? <span className="tag" title={t("Answers yes or no until this species gets its own threshold")}>{t("{n} of {m} checked", { n: r.yes + r.no, m: MIN_ANSWERS })}</span>
+                  : <span className="tag dim">{t("not checked")}</span>}
               </div>
             </li>
           ))}
@@ -120,11 +137,12 @@ export default function Review({ summary, refresh, onError }: { summary: Summary
                   {row.threshold_source === "fitted"
                     ? row.threshold > 1 ? <>{t("Your answers so far say none of these are reliable: none will be exported unless you mark them yes.")}</>
                       : <>{t("Kept from confidence {score} up ({kept} detections), estimated {pct}% right, from {n} answers.", { score: row.threshold.toFixed(1), kept: row.kept.toLocaleString(), pct: Math.round((row.precision ?? 0) * 100), n: row.reviewed })}</>
-                    : <>{t("Threshold {value} (default) until {n} more answers.", { value: row.threshold.toFixed(2), n: Math.max(0, 8 - row.reviewed) })}</>}
+                    : <>{t("Threshold {value} (default) until {n} more answers.", { value: row.threshold.toFixed(2), n: Math.max(1, MIN_ANSWERS - row.yes - row.no) })}</>}
                 </p>
               </div>
               <button onClick={() => pick(row.label, row.model)}>{done === queue.length && queue.length ? t("Next round") : t("New clips")}</button>
             </header>
+            {cheer && <p className="cheer" role="status">{cheer}</p>}
             {queue.length === 0 ? <p className="muted">{t("Every detection of this species has been reviewed.")}</p> : (
               <>
                 <ClipView key={queue[i].id} d={queue[i]} onVerdict={verdict} onMove={(k) => setI((x) => Math.max(0, Math.min(queue.length - 1, x + k)))} />
@@ -449,6 +467,35 @@ function ClipView({ d, onVerdict, onMove }: { d: Detection; onVerdict: (v: "yes"
         <button className={`no ${d.verdict === "no" ? "on" : ""}`} onClick={() => onVerdict("no")}>{t("No")} <kbd>N</kbd></button>
         <button className={`unsure ${d.verdict === "unsure" ? "on" : ""}`} onClick={() => onVerdict("unsure")}>{t("Not sure")} <kbd>U</kbd></button>
       </div>
+    </div>
+  );
+}
+
+/** What the reviewing in this project has done so far. Answers, not detections: the point is better thresholds. */
+function ProgressCard({ g }: { g: ReviewProgress }) {
+  const t = useT();
+  const pct = g.species_checkable ? Math.min(100, (100 * g.species_fitted) / g.species_checkable) : 0;
+  return (
+    <div className="progress-card">
+      <b>{t("Your reviewing")}</b>
+      <small className="muted block">
+        {t("{n} answers", { n: g.answers.toLocaleString() })}
+        {g.today > 0 && <> · {t("{n} today", { n: g.today.toLocaleString() })}</>}
+        {g.streak_days > 1 && <> · {t("{n} days in a row", { n: g.streak_days })}</>}
+      </small>
+      {g.species_checkable > 0 && <>
+        <small className="block">{t("{n} of {m} species have their own threshold", { n: g.species_fitted.toLocaleString(), m: g.species_checkable.toLocaleString() })}</small>
+        <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={g.species_checkable} aria-valuenow={g.species_fitted}><span style={{ width: `${pct}%` }} /></div>
+      </>}
+      {(g.removed > 0 || g.recovered > 0) && (
+        <small className="block note-sm">
+          {g.removed > 0 && t("Your answers left out {n} detections the default would have kept, most of them likely wrong.", { n: g.removed.toLocaleString() })}
+          {g.removed > 0 && g.recovered > 0 && " "}
+          {g.recovered > 0 && (g.removed > 0
+            ? t("They also kept {n} that the default would have dropped.", { n: g.recovered.toLocaleString() })
+            : t("Your answers kept {n} detections that the default would have dropped.", { n: g.recovered.toLocaleString() }))}
+        </small>
+      )}
     </div>
   );
 }

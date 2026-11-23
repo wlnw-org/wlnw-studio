@@ -2,6 +2,19 @@
 // Keep {placeholders} as they are. Product and model names, file formats and species names stay untranslated.
 
 const fr: Record<string, string> = {
+  "Your answers kept {n} detections that the default would have dropped.": "Vos réponses ont gardé {n} détections que le seuil par défaut aurait écartées.",
+  "{name} now has its own threshold. Your answers say these detections are not reliable, so none are kept unless you mark them yes.": "{name} a maintenant son propre seuil. D'après vos réponses, ces détections ne sont pas fiables : aucune n'est gardée sauf si vous répondez oui.",
+  "{name} now has its own threshold: Studio keeps {kept} detections, estimated {pct}% right.": "{name} a maintenant son propre seuil : Studio garde {kept} détections, justes à environ {pct} %.",
+  "Has its own threshold from your answers": "A son propre seuil, tiré de vos réponses",
+  "Answers yes or no until this species gets its own threshold": "Réponses oui ou non avant que cette espèce ait son propre seuil",
+  "{n} of {m} checked": "{n} sur {m} vérifiées",
+  "Your reviewing": "Votre vérification",
+  "{n} answers": "{n} réponses",
+  "{n} today": "{n} aujourd'hui",
+  "{n} days in a row": "{n} jours d'affilée",
+  "{n} of {m} species have their own threshold": "{n} espèces sur {m} ont leur propre seuil",
+  "Your answers left out {n} detections the default would have kept, most of them likely wrong.": "Vos réponses ont écarté {n} détections que le seuil par défaut aurait gardées, pour la plupart sans doute fausses.",
+  "They also kept {n} that the default would have dropped.": "Elles en ont aussi gardé {n} que le seuil par défaut aurait écartées.",
   "Credits and licences": "Crédits et licences",
   "By {by}.": "Par {by}.",
   "Paper": "Article",
@@ -529,6 +542,19 @@ const fr: Record<string, string> = {
 };
 
 const pt: Record<string, string> = {
+  "Your answers kept {n} detections that the default would have dropped.": "Suas respostas mantiveram {n} detecções que o limiar padrão descartaria.",
+  "{name} now has its own threshold. Your answers say these detections are not reliable, so none are kept unless you mark them yes.": "{name} agora tem seu próprio limiar. Pelas suas respostas, essas detecções não são confiáveis: nenhuma é mantida, a menos que você marque sim.",
+  "{name} now has its own threshold: Studio keeps {kept} detections, estimated {pct}% right.": "{name} agora tem seu próprio limiar: o Studio mantém {kept} detecções, com cerca de {pct}% de acerto.",
+  "Has its own threshold from your answers": "Tem seu próprio limiar, a partir das suas respostas",
+  "Answers yes or no until this species gets its own threshold": "Respostas sim ou não até esta espécie ter seu próprio limiar",
+  "{n} of {m} checked": "{n} de {m} conferidas",
+  "Your reviewing": "Sua conferência",
+  "{n} answers": "{n} respostas",
+  "{n} today": "{n} hoje",
+  "{n} days in a row": "{n} dias seguidos",
+  "{n} of {m} species have their own threshold": "{n} de {m} espécies têm seu próprio limiar",
+  "Your answers left out {n} detections the default would have kept, most of them likely wrong.": "Suas respostas deixaram de fora {n} detecções que o limiar padrão manteria, a maioria provavelmente errada.",
+  "They also kept {n} that the default would have dropped.": "Também mantiveram {n} que o limiar padrão descartaria.",
   "Credits and licences": "Créditos e licenças",
   "By {by}.": "Por {by}.",
   "Paper": "Artigo",
