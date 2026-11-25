@@ -2,6 +2,9 @@
 // Keep {placeholders} as they are. Product and model names, file formats and species names stay untranslated.
 
 const fr: Record<string, string> = {
+  "Video": "Vidéo",
+  "From video {file}, {start} to {end}": "De la vidéo {file}, de {start} à {end}",
+  "The clip of this sighting could not be read.": "L'extrait de cette observation n'a pas pu être lu.",
   "Videos: Studio reads": "Vidéos : Studio lit",
   "frames a second through MegaDetector and SpeciesNet, follows each animal from frame to frame, and keeps its sharpest frame and a short clip. More frames catch fast animals but take longer; changing it runs the videos again.": "images par seconde avec MegaDetector et SpeciesNet, suit chaque animal d'une image à l'autre et garde son image la plus nette et un court extrait. Plus d'images attrapent les animaux rapides mais prennent plus de temps ; changer ce réglage relance les vidéos.",
   "of {total} videos done": "vidéos traitées sur {total}",
@@ -555,6 +558,9 @@ const fr: Record<string, string> = {
 };
 
 const pt: Record<string, string> = {
+  "Video": "Vídeo",
+  "From video {file}, {start} to {end}": "Do vídeo {file}, de {start} a {end}",
+  "The clip of this sighting could not be read.": "Não foi possível ler o trecho deste avistamento.",
   "Videos: Studio reads": "Vídeos: o Studio lê",
   "frames a second through MegaDetector and SpeciesNet, follows each animal from frame to frame, and keeps its sharpest frame and a short clip. More frames catch fast animals but take longer; changing it runs the videos again.": "quadros por segundo com o MegaDetector e o SpeciesNet, acompanha cada animal de um quadro ao outro e guarda o quadro mais nítido e um trecho curto. Mais quadros pegam animais rápidos, mas levam mais tempo; mudar isso processa os vídeos de novo.",
   "of {total} videos done": "de {total} vídeos concluídos",

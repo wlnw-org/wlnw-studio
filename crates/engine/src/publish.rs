@@ -78,7 +78,7 @@ pub fn publish(p: &Project, dataset: &str, key: &str, submit: bool, mut on_progr
         let (t, lat, lon) = (o.utc?, o.lat?, o.lon?);
         Some(serde_json::json!({ "site": o.site, "lat": lat, "lon": lon, "ts": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             "name": o.scientific, "confidence": o.score, "count": count,
-            "file": std::path::Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()) }))
+            "file": o.file_name() }))
     }));
     // The site holds up to MAX_RECORDS per dataset: stop before sending anything rather than failing halfway.
     if rows.len() > MAX_RECORDS {

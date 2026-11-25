@@ -179,10 +179,10 @@ pub fn build(p: &Project, tx: &Transaction, video_id: i64, model: &str) -> Resul
         let clip = cut_clip(video, (start - CLIP_PAD_S).max(0.0), end + CLIP_PAD_S, &clip).ok().map(|_| clip);
         let (w, h) = image::image_dimensions(&still).map(|(w, h)| (Some(w as i64), Some(h as i64))).unwrap_or((None, None));
         let at = start_time.map(|t| (t + chrono::Duration::milliseconds((start * 1000.0) as i64)).format("%Y-%m-%d %H:%M:%S").to_string());
-        tx.execute("INSERT INTO images (deployment_id, path, taken_local, time_source, bytes, width, height, video_id, start_s, end_s, clip)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        tx.execute("INSERT INTO images (deployment_id, path, taken_local, time_source, bytes, width, height, video_id, start_s, end_s, clip, frame_s)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![dep, still.to_string_lossy(), at, at.as_ref().map(|_| "video"), std::fs::metadata(&still).map(|m| m.len() as i64).ok(), w, h,
-                video_id, start, end, clip.as_ref().map(|c| c.to_string_lossy().to_string())])?;
+                video_id, start, end, clip.as_ref().map(|c| c.to_string_lossy().to_string()), best.t])?;
         let image_id = tx.last_insert_rowid();
         let (label, score) = tr.verdict().map(|(l, s)| (Some(l), s)).unwrap_or((None, best.conf));
         let kind = match &label { Some(l) => camtrap::taxon(l).kind.to_string(), None => best.kind.clone() };

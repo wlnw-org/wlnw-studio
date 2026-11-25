@@ -184,6 +184,7 @@ function Tile({ it, on, onClick, onOpen }: { it: ImageItem; on: boolean; onClick
       <div className="frame">
         {src ? <img src={src} alt="" /> : <div className="loading">{failed ? t("Could not read this image") : t("Loading...")}</div>}
         {src && <Boxes it={it} />}
+        {it.video && <span className="video-badge">{t("Video")} {secs(it.video.start_s)} {t("to")} {secs(it.video.end_s)}</span>}
       </div>
       <div className="tile-meta">
         <span>{it.site}</span>
@@ -203,7 +204,8 @@ function TileActions({ it, onVerdict }: { it: ImageItem; onVerdict: (v: "yes" | 
       <div className="clip-meta">
         {f ? <span>{t("Box:")} <b>{f.kind === "animal" ? (f.common || f.scientific) : KIND_NAME[f.kind] ? t(KIND_NAME[f.kind]) : f.kind}</b> {t("score {score}, detector {conf}", { score: f.score.toFixed(2), conf: f.conf.toFixed(2) })}</span> : <span className="muted">{t("No box to check in this image.")}</span>}
         {others.length > 0 && <span className="muted">{t("Also suggested: {list}", { list: others.map((o) => `${o[0]} ${o[1].toFixed(2)}`).join(", ") })}</span>}
-        <span className="muted mono" title={it.path}>{it.path.split(/[\\/]/).pop()}</span>
+        {it.video ? <span className="muted mono" title={it.video.file}>{t("From video {file}, {start} to {end}", { file: it.video.file.split(/[\\/]/).pop() ?? "", start: secs(it.video.start_s), end: secs(it.video.end_s) })}</span>
+          : <span className="muted mono" title={it.path}>{it.path.split(/[\\/]/).pop()}</span>}
       </div>
       {f && <div className="verdicts">
         <button className={`yes ${f.verdict === "yes" ? "on" : ""}`} onClick={() => onVerdict("yes")}>{t("Yes, it is")} <kbd>Y</kbd></button>
@@ -223,7 +225,26 @@ function Enlarged({ it, onVerdict, onClose }: { it: ImageItem; onVerdict: (v: "y
         {src ? <img src={src} alt="" /> : <div className="loading">{failed ? t("This image could not be read: {error}", { error: failed }) : t("Loading...")}</div>}
         {src && <Boxes it={it} />}
       </div>
+      {it.video?.clip && <Clip file={it.video.clip} />}
       <TileActions it={it} onVerdict={onVerdict} />
     </div>
   );
+}
+
+/** Seconds as "12.0 s". */
+const secs = (s: number) => `${s.toFixed(1)} s`;
+
+/** A sighting's clip, played from memory (the app reads it from the project's media folder). */
+function Clip({ file }: { file: string }) {
+  const t = useT();
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true, made: string | null = null;
+    setUrl(null); setFailed(false);
+    api.videoClip(file).then((b) => { if (!live) return; made = URL.createObjectURL(new Blob([b], { type: "video/mp4" })); setUrl(made); }).catch(() => { if (live) setFailed(true); });
+    return () => { live = false; if (made) URL.revokeObjectURL(made); };
+  }, [file]);
+  if (failed) return <p className="muted small">{t("The clip of this sighting could not be read.")}</p>;
+  return url ? <video className="sighting-clip" src={url} controls autoPlay muted loop playsInline /> : <p className="muted small">{t("Loading...")}</p>;
 }

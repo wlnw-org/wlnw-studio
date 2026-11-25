@@ -207,6 +207,25 @@ pub struct BoxRow {
     pub scientific: String, pub common: String, pub score: f64, pub source: String, pub verdict: Option<String>, pub top: Vec<(String, f64)>,
 }
 
+/// A sighting cut from a video: the video, when the animal was in view, the frame kept as the still, and the clip.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct VideoRef { pub video_id: i64, pub file: String, pub start_s: f64, pub end_s: f64, pub frame_s: Option<f64>, pub fps: Option<f64>, pub clip: Option<String> }
+
+impl VideoRef {
+    pub fn file_name(&self) -> String { Path::new(&self.file).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() }
+    /// The kept frame's index in the video (for WDX regions), when the frame rate is known.
+    pub fn frame(&self) -> Option<i64> { Some((self.frame_s? * self.fps?).round() as i64) }
+}
+
+/// Columns for `video_ref_from` (images i LEFT JOIN videos v ON v.id = i.video_id).
+const VIDEO_COLS: &str = "i.video_id, v.path, i.start_s, i.end_s, i.frame_s, v.fps, i.clip";
+
+fn video_ref_from(r: &rusqlite::Row, at: usize) -> rusqlite::Result<Option<VideoRef>> {
+    let Some(video_id) = r.get::<_, Option<i64>>(at)? else { return Ok(None) };
+    Ok(Some(VideoRef { video_id, file: r.get::<_, Option<String>>(at + 1)?.unwrap_or_default(), start_s: r.get::<_, Option<f64>>(at + 2)?.unwrap_or(0.0),
+        end_s: r.get::<_, Option<f64>>(at + 3)?.unwrap_or(0.0), frame_s: r.get(at + 4)?, fps: r.get(at + 5)?, clip: r.get(at + 6)? }))
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct ImageItem {
     pub id: i64, pub path: String, pub deployment_id: i64, pub site: String, pub taken_local: Option<String>,
@@ -215,6 +234,8 @@ pub struct ImageItem {
     pub boxes: Vec<BoxRow>,
     /// The box this tile asks about (species review), if any.
     pub focus: Option<i64>,
+    /// Set when this is a sighting from a video.
+    pub video: Option<VideoRef>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -242,12 +263,12 @@ fn boxes_of(p: &Project, image: i64) -> Result<Vec<BoxRow>> {
 }
 
 fn item(p: &Project, image: i64, focus: Option<i64>) -> Result<ImageItem> {
-    let (id, path, dep, site, taken, tz, w, h, lat, lon): (i64, String, i64, String, Option<String>, i32, Option<i64>, Option<i64>, Option<f64>, Option<f64>) =
-        p.db.query_row("SELECT i.id, i.path, i.deployment_id, d.name, i.taken_local, d.tz_offset_min, i.width, i.height, COALESCE(i.lat, d.lat), COALESCE(i.lon, d.lon)
-            FROM images i JOIN deployments d ON d.id = i.deployment_id WHERE i.id = ?1", [image],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?)))?;
+    let (id, path, dep, site, taken, tz, w, h, lat, lon, video): (i64, String, i64, String, Option<String>, i32, Option<i64>, Option<i64>, Option<f64>, Option<f64>, Option<VideoRef>) =
+        p.db.query_row(&format!("SELECT i.id, i.path, i.deployment_id, d.name, i.taken_local, d.tz_offset_min, i.width, i.height, COALESCE(i.lat, d.lat), COALESCE(i.lon, d.lon), {VIDEO_COLS}
+            FROM images i JOIN deployments d ON d.id = i.deployment_id LEFT JOIN videos v ON v.id = i.video_id WHERE i.id = ?1"), [image],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?, r.get(9)?, video_ref_from(r, 10)?)))?;
     let utc = taken.as_deref().and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").ok()).map(|t| t - Duration::minutes(tz as i64));
-    Ok(ImageItem { id, path, deployment_id: dep, site, taken_local: taken, utc, width: w, height: h, lat, lon, boxes: boxes_of(p, image)?, focus })
+    Ok(ImageItem { id, path, deployment_id: dep, site, taken_local: taken, utc, width: w, height: h, lat, lon, boxes: boxes_of(p, image)?, focus, video })
 }
 
 /// Tiles to review: for a species, its boxes (unreviewed first, a few from every score band, highest first, then the
@@ -356,6 +377,16 @@ pub struct Obs {
     pub taken_local: Option<NaiveDateTime>, pub tz_offset_min: i32, pub utc: Option<NaiveDateTime>, pub lat: Option<f64>, pub lon: Option<f64>,
     pub species: i64, pub scientific: String, pub common: String, pub rank: String, pub model: String, pub score: f64, pub conf: f64,
     pub bbox: [f64; 4], pub verdict: Option<String>, pub width: Option<i64>, pub height: Option<i64>,
+    /// Set for a sighting from a video: exports name the video and the sighting's start and end.
+    pub video: Option<VideoRef>,
+}
+
+impl Obs {
+    /// The file a record points to: the video for a sighting, else the photo.
+    pub fn file(&self) -> &str { self.video.as_ref().map_or(self.path.as_str(), |v| v.file.as_str()) }
+    pub fn file_name(&self) -> String { Path::new(self.file()).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() }
+    /// When the animal left the view (UTC), for a sighting; the photo's time otherwise.
+    pub fn utc_end(&self) -> Option<NaiveDateTime> { self.utc.map(|t| t + self.video.as_ref().map_or(Duration::zero(), |v| Duration::milliseconds(((v.end_s - v.start_s) * 1000.0) as i64))) }
 }
 
 /// Images with a person in them (a human box nobody rejected): never exported or published.
@@ -369,10 +400,10 @@ pub fn with_people(p: &Project) -> Result<std::collections::HashSet<i64>> {
 /// reviewed yes; never from an image with people in it.
 pub fn accepted(p: &Project) -> Result<Vec<Obs>> {
     let people = with_people(p)?;
-    let mut st = p.db.prepare("SELECT b.id, b.image_id, i.path, i.deployment_id, d.name, i.taken_local, d.tz_offset_min, COALESCE(i.lat, d.lat), COALESCE(i.lon, d.lon),
-            b.species, s.scientific, s.common, COALESCE(b.label, ''), b.model, b.score, b.conf, b.x, b.y, b.w, b.h, r.verdict, i.width, i.height
-        FROM image_boxes b JOIN images i ON i.id = b.image_id JOIN deployments d ON d.id = i.deployment_id JOIN species s ON s.id = b.species
-        LEFT JOIN image_reviews r ON r.box_id = b.id WHERE b.kind = 'animal' AND COALESCE(r.verdict, '') <> 'no' ORDER BY i.taken_local, i.path, b.conf DESC")?;
+    let mut st = p.db.prepare(&format!("SELECT b.id, b.image_id, i.path, i.deployment_id, d.name, i.taken_local, d.tz_offset_min, COALESCE(i.lat, d.lat), COALESCE(i.lon, d.lon),
+            b.species, s.scientific, s.common, COALESCE(b.label, ''), b.model, b.score, b.conf, b.x, b.y, b.w, b.h, r.verdict, i.width, i.height, {VIDEO_COLS}
+        FROM image_boxes b JOIN images i ON i.id = b.image_id JOIN deployments d ON d.id = i.deployment_id JOIN species s ON s.id = b.species LEFT JOIN videos v ON v.id = i.video_id
+        LEFT JOIN image_reviews r ON r.box_id = b.id WHERE b.kind = 'animal' AND COALESCE(r.verdict, '') <> 'no' ORDER BY i.taken_local, i.path, b.conf DESC"))?;
     let mut cache: HashMap<(i64, String), f64> = HashMap::new();
     let rows: Vec<Obs> = st.query_map([], |r| {
         let taken: Option<String> = r.get(5)?;
@@ -383,7 +414,7 @@ pub fn accepted(p: &Project) -> Result<Vec<Obs>> {
             box_id: r.get(0)?, image_id: r.get(1)?, path: r.get(2)?, deployment_id: r.get(3)?, site: r.get(4)?, taken_local: taken, tz_offset_min: tz,
             utc: taken.map(|t| t - Duration::minutes(tz as i64)), lat: r.get(7)?, lon: r.get(8)?, species: r.get(9)?, scientific: r.get(10)?, common: r.get(11)?,
             rank: camtrap::taxon(&label).rank.to_string(), model: r.get(13)?, score: r.get(14)?, conf: r.get(15)?,
-            bbox: [r.get(16)?, r.get(17)?, r.get(18)?, r.get(19)?], verdict: r.get(20)?, width: r.get(21)?, height: r.get(22)?,
+            bbox: [r.get(16)?, r.get(17)?, r.get(18)?, r.get(19)?], verdict: r.get(20)?, width: r.get(21)?, height: r.get(22)?, video: video_ref_from(r, 23)?,
         })
     })?.collect::<Result<_, _>>()?;
     Ok(rows.into_iter().filter(|o| !people.contains(&o.image_id))
@@ -432,8 +463,8 @@ pub fn camtrapdp(p: &Project, dir: &Path) -> Result<CamtrapReport> {
         rows.collect::<Result<_, _>>()?
     };
     // Every image: (id, deployment, path, taken local, kinds seen)
-    let mut st = p.db.prepare("SELECT i.id, i.deployment_id, i.path, i.taken_local FROM images i ORDER BY i.deployment_id, i.taken_local, i.path")?;
-    let images: Vec<(i64, i64, String, Option<String>)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?;
+    let mut st = p.db.prepare(&format!("SELECT i.id, i.deployment_id, i.path, i.taken_local, {VIDEO_COLS} FROM images i LEFT JOIN videos v ON v.id = i.video_id ORDER BY i.deployment_id, i.taken_local, i.path"))?;
+    let images: Vec<(i64, i64, String, Option<String>, Option<VideoRef>)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, video_ref_from(r, 4)?)))?.collect::<Result<_, _>>()?;
     let mut st = p.db.prepare("SELECT b.image_id, b.kind, b.conf, b.x, b.y, b.w, b.h, b.score, b.model, b.id FROM image_boxes b LEFT JOIN image_reviews r ON r.box_id = b.id
         WHERE b.kind IN ('vehicle', 'unknown') AND COALESCE(r.verdict, '') <> 'no'")?;
     let mut other: HashMap<i64, Vec<(String, [f64; 4], f64, String, i64)>> = HashMap::new();
@@ -448,11 +479,14 @@ pub fn camtrapdp(p: &Project, dir: &Path) -> Result<CamtrapReport> {
     let mut taxa: BTreeMap<String, String> = BTreeMap::new();
     let (mut t_min, mut t_max): (Option<String>, Option<String>) = (None, None);
     let dep_of: HashMap<i64, &crate::store::Deployment> = deps.iter().map(|d| (d.id, d)).collect();
-    for (id, dep, path, taken) in &images {
+    for (id, dep, path, taken, video) in &images {
         if people.contains(id) { rep.left_out_people += 1; continue; }
         let d = dep_of[dep];
         let (Some(taken), Some(_), Some(_)) = (taken.as_deref().and_then(|s| NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S").ok()), d.lat, d.lon) else { rep.left_out_no_time_or_place += 1; continue };
         let ts = format!("{}{}", taken.format("%Y-%m-%dT%H:%M:%S"), offset_str(d.tz_offset_min));
+        // A video sighting: its still is the media, and its observations last as long as the animal was in view.
+        let ts_end = match video { Some(v) => format!("{}{}", (taken + Duration::milliseconds(((v.end_s - v.start_s) * 1000.0) as i64)).format("%Y-%m-%dT%H:%M:%S"), offset_str(d.tz_offset_min)), None => ts.clone() };
+        let note = video.as_ref().map(|v| format!("Frame at {:.1} s of video {}; the animal was in view from {:.1} to {:.1} s", v.frame_s.unwrap_or(v.start_s), v.file_name(), v.start_s, v.end_s)).unwrap_or_default();
         let e = span.entry(*dep).or_insert_with(|| (ts.clone(), ts.clone()));
         if ts < e.0 { e.0 = ts.clone(); }
         if ts > e.1 { e.1 = ts.clone(); }
@@ -461,12 +495,12 @@ pub fn camtrapdp(p: &Project, dir: &Path) -> Result<CamtrapReport> {
         let file = Path::new(path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
         let mime = if file.to_ascii_lowercase().ends_with(".png") { "image/png" } else { "image/jpeg" };
         let mid = format!("{ds}-m{id}");
-        media.push_str(&[mid.clone(), format!("{ds}-d{dep}"), "activityDetection".into(), ts.clone(), csv_field(&file), "false".into(), csv_field(&file), mime.into(), String::new(), String::new(), String::new()].join(","));
+        media.push_str(&[mid.clone(), format!("{ds}-d{dep}"), "activityDetection".into(), ts.clone(), csv_field(&file), "false".into(), csv_field(&file), mime.into(), String::new(), String::new(), csv_field(&note)].join(","));
         media.push('\n');
         rep.media += 1;
         let mut row = |oid: String, kind: &str, sci: &str, count: &str, b: Option<[f64; 4]>, method: &str, by: &str, prob: Option<f64>| {
             let bb = b.map(|b| b.iter().map(|v| format!("{:.4}", v)).collect::<Vec<_>>()).unwrap_or_else(|| vec![String::new(); 4]);
-            obs.push_str(&[oid, format!("{ds}-d{dep}"), mid.clone(), String::new(), ts.clone(), ts.clone(), "media".into(), kind.into(), String::new(), csv_field(sci), count.into(),
+            obs.push_str(&[oid, format!("{ds}-d{dep}"), mid.clone(), String::new(), ts.clone(), ts_end.clone(), "media".into(), kind.into(), String::new(), csv_field(sci), count.into(),
                 String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), bb[0].clone(), bb[1].clone(), bb[2].clone(), bb[3].clone(),
                 method.into(), csv_field(by), String::new(), prob.map(|v| format!("{v:.4}")).unwrap_or_default(), String::new(), String::new()].join(","));
             obs.push('\n');
@@ -628,6 +662,56 @@ mod tests {
         assert!(set_country(&p, 1, Some("ken"), None).unwrap());
         assert_eq!(todo(&p, camtrap::ID).unwrap(), 5);
         assert!(set_country(&p, 1, Some("Kenya"), None).is_err());
+        drop(p);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn video_sightings_export_with_the_video_and_times() {
+        let (p, dir) = project("vid");
+        p.db.execute_batch("INSERT INTO deployments (id, name, folder, lat, lon, tz_offset_min, tz_known) VALUES (1, 'Trail', '/t', 35.1, -106.6, -420, 1);
+            INSERT INTO species (id, scientific, common) VALUES (1, 'Urocyon cinereoargenteus', 'grey fox');
+            INSERT INTO videos (id, deployment_id, path, taken_local, duration_s, fps, width, height, probed) VALUES (1, 1, '/t/IMAG0042.AVI', '2026-03-01 20:07:00', 31.0, 30.0, 960, 720, 1);
+            INSERT INTO images (id, deployment_id, path, taken_local, width, height, video_id, start_s, end_s, clip, frame_s)
+              VALUES (1, 1, '/p media/videos/v1_01_IMAG0042.jpg', '2026-03-01 20:07:02', 960, 720, 1, 2.0, 12.0, '/p media/videos/v1_01_IMAG0042.mp4', 7.0);
+            INSERT INTO image_models (image_id, model, status, processed_at) VALUES (1, 'speciesnet-4.0.3a', 'done', '');
+            INSERT INTO image_boxes (id, image_id, model, category, conf, x, y, w, h, kind, species, label, score) VALUES
+              (1, 1, 'speciesnet-4.0.3a', 'animal', 0.9, 0.6, 0.3, 0.3, 0.4, 'animal', 1, 'f;mammalia;carnivora;canidae;urocyon;cinereoargenteus;grey fox', 0.93);").unwrap();
+        // Sightings are made by frames.rs: never run again as photos.
+        assert_eq!(todo(&p, camtrap::ID).unwrap(), 0);
+        let it = &queue(&p, &Query::default()).unwrap()[0];
+        let v = it.video.as_ref().unwrap();
+        assert_eq!((v.file_name().as_str(), v.start_s, v.end_s, v.frame()), ("IMAG0042.AVI", 2.0, 12.0, Some(210)));
+        assert!(v.clip.as_deref().unwrap().ends_with(".mp4"));
+        let acc = accepted(&p).unwrap();
+        assert_eq!(acc[0].utc_end().unwrap().to_string(), "2026-03-02 03:07:12");
+        // CSV: the video's path, the seconds in view, media "video".
+        let out = dir.join("v.csv");
+        crate::export::csv(&p, &out).unwrap();
+        let csv = std::fs::read_to_string(&out).unwrap();
+        assert!(csv.contains("/t/IMAG0042.AVI,2.0,12.0,2026-03-02T03:07:02Z,Urocyon cinereoargenteus,grey fox,") && csv.contains(",video,0.6000,"), "{csv}");
+        // WDX: a video event lasting the sighting, the box on the kept frame.
+        let out = dir.join("v.ndjson");
+        crate::export::wdx(&p, &out).unwrap();
+        let ev: serde_json::Value = serde_json::from_str(std::fs::read_to_string(&out).unwrap().lines().next().unwrap()).unwrap();
+        assert_eq!((ev["eventStart"].as_str(), ev["eventEnd"].as_str()), (Some("2026-03-02T03:07:02Z"), Some("2026-03-02T03:07:12Z")));
+        assert_eq!(ev["media"]["mediaType"], "video");
+        assert_eq!(ev["media"]["fileName"], "IMAG0042.AVI");
+        assert_eq!((ev["media"]["startOffsetSeconds"].as_f64(), ev["media"]["durationSeconds"].as_f64()), (Some(2.0), Some(10.0)));
+        assert_eq!(ev["media"]["region"]["frame"], 210);
+        // Darwin Core: the interval in view, the video as the media, the seconds in the remarks.
+        let out = dir.join("dwca.zip");
+        crate::export::dwca(&p, &out).unwrap();
+        let mut z = zip::ZipArchive::new(std::fs::File::open(&out).unwrap()).unwrap();
+        let mut occ = String::new();
+        std::io::Read::read_to_string(&mut z.by_name("occurrence.txt").unwrap(), &mut occ).unwrap();
+        let row = occ.lines().nth(1).unwrap();
+        assert!(row.contains("\t2026-03-02T03:07:02Z/2026-03-02T03:07:12Z\t") && row.contains("camera trap video, 2.0 to 12.0 s") && row.contains("\tIMAG0042.AVI\t"), "{row}");
+        // Camtrap DP: the still is the media, noting the video; the observation lasts the sighting.
+        let dp = dir.join("dp");
+        camtrapdp(&p, &dp).unwrap();
+        assert!(std::fs::read_to_string(dp.join("media.csv")).unwrap().contains("Frame at 7.0 s of video IMAG0042.AVI"));
+        assert!(std::fs::read_to_string(dp.join("observations.csv")).unwrap().contains("2026-03-01T20:07:02-07:00,2026-03-01T20:07:12-07:00"));
         drop(p);
         std::fs::remove_dir_all(&dir).ok();
     }

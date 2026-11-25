@@ -78,11 +78,13 @@ pub fn csv(p: &Project, out: &Path) -> Result<usize> {
             b.threshold, if b.fitted { "fitted" } else { "default" }, b.reviewed, b.precision.map(|x| format!("{x:.3}")).unwrap_or_default(), STUDIO, q(crate::credits::reference(&d.model)))?;
     }
     // Camera-trap photos: one row per accepted animal box (people never), so a photo-only project still gets a useful CSV.
+    // A sighting from a video names the video, with the seconds the animal was in view.
     let boxes = crate::images::accepted(p)?;
     for o in &boxes {
         let (name, ver) = crate::images::model_label(&o.model);
-        writeln!(f, "{},{},{},{},,,{},{},{},{},{:.4},{},,,,,{},image,{:.4},{:.4},{:.4},{:.4},{}", q(&o.site), o.lat.map_or(String::new(), |v| v.to_string()), o.lon.map_or(String::new(), |v| v.to_string()),
-            q(&o.path), o.utc.map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default(), q(&o.scientific), q(&o.common), q(&format!("{name} {ver}")),
+        let (start, end, media) = match &o.video { Some(v) => (format!("{:.1}", v.start_s), format!("{:.1}", v.end_s), "video"), None => (String::new(), String::new(), "image") };
+        writeln!(f, "{},{},{},{},{start},{end},{},{},{},{},{:.4},{},,,,,{},{media},{:.4},{:.4},{:.4},{:.4},{}", q(&o.site), o.lat.map_or(String::new(), |v| v.to_string()), o.lon.map_or(String::new(), |v| v.to_string()),
+            q(o.file()), o.utc.map(|t| t.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default(), q(&o.scientific), q(&o.common), q(&format!("{name} {ver}")),
             o.score, o.verdict.as_deref().unwrap_or(""), STUDIO, o.bbox[0], o.bbox[1], o.bbox[2], o.bbox[3], q(&image_reference()))?;
     }
     Ok(rows.len() + boxes.len())
@@ -163,14 +165,12 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
         let rank = if o.rank == "kingdom" { "unranked" } else { o.rank.as_str() };
         let ev = serde_json::json!({
             "wdx": "0.4", "eventId": format!("wlnw-studio:{}:img{}", ds, o.box_id),
-            "eventStart": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(), "eventEnd": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            "eventStart": t.format("%Y-%m-%dT%H:%M:%SZ").to_string(), "eventEnd": o.utc_end().unwrap_or(t).format("%Y-%m-%dT%H:%M:%SZ").to_string(),
             "deployment": { "deploymentId": format!("{}:{}", ds, o.deployment_id), "name": o.site, "latitude": lat, "longitude": lon, "sensorType": "camera-trap" },
             "detection": { "scientificName": o.scientific, "vernacularName": o.common, "taxonRank": rank, "individualCount": 1,
                 "confidence": (o.score * 10000.0).round() / 10000.0, "classifier": { "name": name, "version": ver, "reference": crate::credits::reference("speciesnet").rsplit(' ').next() },
                 "pipeline": [{ "role": "detector", "name": "MegaDetector", "version": "6 MIT YOLOv9" }, { "role": "classifier", "name": name, "version": ver }] },
-            "media": { "mediaType": "image", "fileName": Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()),
-                "region": { "type": "box", "units": "normalized", "coordinates": o.bbox.iter().map(|v| (v * 10000.0).round() / 10000.0).collect::<Vec<_>>(),
-                    "imageWidth": o.width, "imageHeight": o.height } },
+            "media": wdx_media(o),
             "review": { "status": if o.verdict.as_deref() == Some("yes") { "confirmed" } else { "unreviewed" } },
             "source": { "system": "wlnw-studio", "systemVersion": env!("CARGO_PKG_VERSION"), "sourceRecordId": format!("img{}", o.box_id) },
             "license": i.license,
@@ -180,6 +180,21 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
         n_img += 1;
     }
     Ok(rows.len() + n_img)
+}
+
+/// The WDX media block of a camera-trap record: the photo, or for a video sighting the video with when the animal was in
+/// view and the frame its box is on.
+fn wdx_media(o: &crate::images::Obs) -> serde_json::Value {
+    let mut region = serde_json::json!({ "type": "box", "units": "normalized", "coordinates": o.bbox.iter().map(|v| (v * 10000.0).round() / 10000.0).collect::<Vec<_>>(),
+        "imageWidth": o.width, "imageHeight": o.height });
+    match &o.video {
+        None => serde_json::json!({ "mediaType": "image", "fileName": o.file_name(), "region": region }),
+        Some(v) => {
+            if let Some(f) = v.frame() { region["frame"] = f.into(); }
+            serde_json::json!({ "mediaType": "video", "fileName": o.file_name(), "startOffsetSeconds": (v.start_s * 1000.0).round() / 1000.0,
+                "durationSeconds": ((v.end_s - v.start_s).max(0.001) * 1000.0).round() / 1000.0, "region": region })
+        }
+    }
 }
 
 /// A Darwin Core Archive (occurrence core) ready for an IPT or GBIF: occurrence.txt, meta.xml and a minimal eml.xml.
@@ -219,11 +234,14 @@ pub fn dwca(p: &Project, out: &Path) -> Result<usize> {
     for (o, count) in crate::images::per_image(&images) {
         let (Some(t), Some(lat), Some(lon)) = (o.utc, o.lat, o.lon) else { continue };
         let (name, ver) = crate::images::model_label(&o.model);
-        let line = [format!("{ds}:img{}:{}", o.image_id, o.species), "MachineObservation".into(), t.format("%Y-%m-%dT%H:%M:%SZ").to_string(), o.scientific.clone(), o.common.clone(),
+        // A video sighting's date is the interval the animal was in view (ISO 8601 start/end).
+        let date = match (&o.video, o.utc_end()) { (Some(_), Some(e)) if e > t => format!("{}/{}", t.format("%Y-%m-%dT%H:%M:%SZ"), e.format("%Y-%m-%dT%H:%M:%SZ")), _ => t.format("%Y-%m-%dT%H:%M:%SZ").to_string() };
+        let remarks = match &o.video { Some(v) => format!("camera trap video, {:.1} to {:.1} s; score {:.4}", v.start_s, v.end_s, o.score), None => format!("camera trap image; score {:.4}", o.score) };
+        let line = [format!("{ds}:img{}:{}", o.image_id, o.species), "MachineObservation".into(), date, o.scientific.clone(), o.common.clone(),
             format!("{lat:.5}"), format!("{lon:.5}"), "100".into(), o.site.clone(), i.people.join(" | "), i.institution.clone().unwrap_or_default(), i.title.clone(), license_url(&i.license).into(),
             format!("{name} {ver} with MegaDetector v6{}", if o.verdict.as_deref() == Some("yes") { " | confirmed by reviewer" } else { "" }),
             if o.verdict.as_deref() == Some("yes") { "verified by expert" } else { "unverified" }.into(),
-            format!("camera trap image; score {:.4}", o.score), Path::new(&o.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(), "present".into(),
+            remarks, o.file_name(), "present".into(),
             image_reference(), o.rank.clone(), count.to_string()];
         occ.push_str(&line.iter().map(|v| tsv(v)).collect::<Vec<_>>().join("\t"));
         occ.push('\n');

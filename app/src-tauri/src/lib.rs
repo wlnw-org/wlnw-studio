@@ -227,6 +227,17 @@ async fn image_thumb(file: String, max: u32) -> R<String> {
     }).await.map_err(err)?
 }
 
+/// A sighting's clip (MP4), only from this project's own media folder.
+#[tauri::command]
+async fn video_clip(file: String, s: State<'_, App>) -> R<tauri::ipc::Response> {
+    let dir = wlnw_engine::sightings::media_dir(&path(&s)?);
+    tauri::async_runtime::spawn_blocking(move || {
+        let f = Path::new(&file);
+        if !f.starts_with(&dir) || f.components().any(|c| matches!(c, std::path::Component::ParentDir)) { return Err("Not a clip of this project.".to_string()); }
+        std::fs::read(f).map(tauri::ipc::Response::new).map_err(err)
+    }).await.map_err(err)?
+}
+
 #[tauri::command(async)]
 fn set_setting(key: String, value: String, s: State<App>) -> R<()> {
     if !["default_threshold", "dataset", "models"].contains(&key.as_str()) { return Err("unknown setting".into()); }
@@ -696,7 +707,7 @@ pub fn run() {
             species, review_progress, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
             list_files, export_file_list, retry_failed, history_list, import_results, live_import, live_refresh, live_stations, remove_preview, remove_from_project, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
             online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,
-            set_deployment_country, set_video_rate, ffmpeg_info, download_ffmpeg, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
+            set_deployment_country, set_video_rate, video_clip, ffmpeg_info, download_ffmpeg, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
         .run(tauri::generate_context!())
         .expect("error while running Wildlife Network Studio");
 }

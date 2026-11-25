@@ -19,7 +19,8 @@ export interface FfmpegInfo { installed: boolean; path: string | null; download:
 export interface ImageCounts { total: number; done: number; failed: number; animals: number; people: number; vehicles: number; empty: number; boxes: number }
 export interface ImageSpeciesRow { label: number; model: string; scientific: string; common: string; boxes: number; images: number; kept: number; reviewed: number; yes: number; no: number; threshold: number; threshold_source: string; precision: number | null; max_score: number }
 export interface ImageBox { id: number; model: string; kind: "animal" | "human" | "vehicle" | "blank" | "unknown"; category: string; conf: number; bbox: [number, number, number, number]; species: number | null; scientific: string; common: string; score: number; source: string; verdict: string | null; top: [string, number][] }
-export interface ImageItem { id: number; path: string; deployment_id: number; site: string; taken_local: string | null; utc: string | null; width: number | null; height: number | null; lat: number | null; lon: number | null; boxes: ImageBox[]; focus: number | null }
+export interface ImageItem { id: number; path: string; deployment_id: number; site: string; taken_local: string | null; utc: string | null; width: number | null; height: number | null; lat: number | null; lon: number | null; boxes: ImageBox[]; focus: number | null; video: VideoRef | null }
+export interface VideoRef { video_id: number; file: string; start_s: number; end_s: number; frame_s: number | null; fps: number | null; clip: string | null }
 export interface ImageQuery { species?: number | null; model?: string | null; show?: string | null; offset?: number; limit?: number }
 export interface PublishReport { sent: number; added: number; duplicates: number; left_out: number; status: string | null; no_place_or_time: number; from_base: number; details_error: string | null }
 
@@ -114,6 +115,7 @@ export const api = {
   imageFilters: () => invoke<Record<string, number>>("image_filters"),
   setImageVerdict: (boxId: number, verdict: string | null) => invoke<void>("set_image_verdict", { boxId, verdict }),
   imageThumb: (file: string, max: number) => invoke<string>("image_thumb", { file, max }),
+  videoClip: (file: string) => invoke<ArrayBuffer>("video_clip", { file }),
 };
 
 /** A playable URL for a base64 WAV. A blob URL rather than a long data: URL, which WebKitGTK on Linux handles badly.
