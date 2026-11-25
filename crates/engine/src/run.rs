@@ -28,6 +28,9 @@ pub struct Progress {
     #[serde(default)] pub images_done: i64,
     #[serde(default)] pub images_total: i64,
     #[serde(default)] pub images_per_s: f64,
+    /// Videos through the image model: done and read so far.
+    #[serde(default)] pub videos_done: i64,
+    #[serde(default)] pub videos_total: i64,
 }
 
 /// Model ids to run for each deployment: the project's choice, or the default for its region and sample rate.
@@ -95,6 +98,10 @@ pub fn progress_all(p: &Project, plan: &HashMap<i64, Vec<String>>, have: &[Strin
         pr.images_done = pr.images_total - crate::images::todo(p, crate::camtrap::ID)?;
         pr.jobs_total += pr.images_total;
         pr.jobs_done += pr.images_done;
+        pr.videos_total = crate::frames::total(p)?;
+        pr.videos_done = pr.videos_total - crate::frames::todo(p, crate::camtrap::ID)?;
+        pr.jobs_total += pr.videos_total;
+        pr.jobs_done += pr.videos_done;
     }
     Ok(pr)
 }
@@ -144,7 +151,7 @@ pub fn space(p: &Project, plan: &HashMap<i64, Vec<String>>, embedding_models: &[
 
 /// What one run did, for the project history.
 #[derive(Default)]
-struct RunStats { files: HashMap<i64, f64>, failed: std::collections::HashSet<i64>, images: crate::images::RunStats }
+struct RunStats { files: HashMap<i64, f64>, failed: std::collections::HashSet<i64>, images: crate::images::RunStats, videos: crate::frames::RunStats }
 
 /// Runs every (recording, model) pair still to do. `on_progress` is called before each pair; set `stop` to finish the current pair and return.
 /// Each run is written to the project history with what it did.
@@ -158,7 +165,7 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, on_pr
     used.sort();
     used.dedup();
     let names = used.iter().map(|id| models.iter().find(|m| &m.info().id == id).map(|m| m.info().name.clone()).unwrap_or_else(|| id.clone())).collect::<Vec<_>>().join(" + ");
-    let image_names: Vec<String> = crate::images::image_models(models).iter().filter(|m| crate::images::todo(p, &m.info().id).unwrap_or(0) > 0).map(|m| m.info().name.clone()).collect();
+    let image_names: Vec<String> = crate::images::image_models(models).iter().filter(|m| crate::images::todo(p, &m.info().id).unwrap_or(0) + crate::frames::todo(p, &m.info().id).unwrap_or(0) > 0).map(|m| m.info().name.clone()).collect();
     let names = [names, image_names.join(" + ")].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" + ");
     let names = if names.is_empty() { "No model".to_string() } else { names };
     let count = || -> i64 { p.db.query_row("SELECT COUNT(*) FROM detections", [], |r| r.get(0)).unwrap_or(0) };
@@ -170,12 +177,14 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, on_pr
     let audio: f64 = st.files.values().sum::<f64>().max(0.0);
     let added = count() - before;
     let wall = started.elapsed().as_secs_f64();
-    let mut parts = if st.files.is_empty() { if st.images.images + st.images.failed == 0 { vec!["no recording read".to_string()] } else { vec![] } } else {
+    let mut parts = if st.files.is_empty() { if st.images.images + st.images.failed + st.videos.videos + st.videos.failed == 0 { vec!["no recording read".to_string()] } else { vec![] } } else {
         vec![format!("{} {} ({} of audio)", history::n(st.files.len() as i64), if st.files.len() == 1 { "recording" } else { "recordings" }, history::hours(audio)),
             format!("{} new detections", history::n(added))]
     };
     if st.images.images > 0 { parts.push(format!("{} {} ({} boxes)", history::n(st.images.images), if st.images.images == 1 { "image" } else { "images" }, history::n(st.images.boxes))); }
     if st.images.failed > 0 { parts.push(format!("{} images could not be read", history::n(st.images.failed))); }
+    if st.videos.videos > 0 { parts.push(format!("{} {} ({} frames, {} sightings)", history::n(st.videos.videos), if st.videos.videos == 1 { "video" } else { "videos" }, history::n(st.videos.frames), history::n(st.videos.sightings))); }
+    if st.videos.failed > 0 { parts.push(format!("{} videos could not be read", history::n(st.videos.failed))); }
     if !st.failed.is_empty() { parts.push(format!("{} could not be read", history::n(st.failed.len() as i64))); }
     let (status, tail) = match &r {
         Ok(pr) if pr.jobs_done >= pr.jobs_total => ("finished", match (pr.files_total > 0, st.failed.is_empty() && st.images.failed == 0) {
@@ -189,6 +198,7 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, on_pr
         "seconds": wall, "speed_x": if wall > 0.0 { audio / wall } else { 0.0 },
         "images": st.images.images, "images_failed": st.images.failed, "boxes": st.images.boxes,
         "images_per_s": if st.images.seconds > 0.0 { st.images.images as f64 / st.images.seconds } else { 0.0 },
+        "videos": st.videos.videos, "videos_failed": st.videos.failed, "frames": st.videos.frames, "sightings": st.videos.sightings,
     }))?;
     r
 }
@@ -297,6 +307,22 @@ fn run_inner(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut
             pr.current_model = Some("SpeciesNet".into());
             on_progress(&pr);
         })?;
+        // Then the frames of the videos.
+        if !stop.load(Ordering::Relaxed) {
+            let base = progress_all(p, &plan, &have)?;
+            let vid_started = Instant::now();
+            stats.videos = crate::frames::run(p, models, stop, |done, total, path| {
+                let mut pr = base.clone();
+                pr.videos_done = base.videos_done + done;
+                pr.jobs_done = base.jobs_done + done;
+                let w = vid_started.elapsed().as_secs_f64();
+                if w > 1.0 && done > 0 { pr.eta_s = Some((total - done) as f64 * w / done as f64); }
+                pr.speed_x = audio_s / audio_wall;
+                pr.current = (!path.is_empty()).then(|| path.to_string());
+                pr.current_model = Some("SpeciesNet".into());
+                on_progress(&pr);
+            })?;
+        }
     }
     let mut prog = progress_all(p, &plan, &have)?;
     let wall = started.elapsed().as_secs_f64().max(1e-3);

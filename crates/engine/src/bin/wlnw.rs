@@ -5,7 +5,7 @@
 //!   wlnw place <project.wlnw> <deployment id> <lat> <lon> <utc offset hours>
 //!   wlnw country <project.wlnw> <deployment id> <ISO 3166 alpha-3> [US state]   camera traps: SpeciesNet geofencing
 //!   wlnw use <project.wlnw> [model ids...]          models to run (none = regional default)
-//!   wlnw run <project.wlnw> [models dir]             recordings with the sound models, images with SpeciesNet
+//!   wlnw run <project.wlnw> [models dir]             recordings with the sound models, images and video frames with SpeciesNet
 //!   wlnw status <project.wlnw> [models dir]
 //!   wlnw files <project.wlnw> [done|partial|todo|failed|none] [models dir]
 //!   wlnw retry <project.wlnw>                       try failed recordings again on the next run

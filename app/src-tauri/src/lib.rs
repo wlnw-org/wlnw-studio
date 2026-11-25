@@ -233,6 +233,10 @@ fn set_setting(key: String, value: String, s: State<App>) -> R<()> {
     open(&s)?.set_setting(&key, &value).map_err(err)
 }
 
+/// Frames read per second of video (every video runs again when it changes).
+#[tauri::command(async)]
+fn set_video_rate(per_s: f64, s: State<App>) -> R<bool> { wlnw_engine::frames::set_per_s(&open(&s)?, per_s).map_err(err) }
+
 /// The Wildlife Network dataset this project was last published to (pre-fills the Publish screen; the key is never stored).
 #[tauri::command(async)]
 fn published_dataset(s: State<App>) -> R<Option<String>> { open(&s)?.setting("dataset_id").map_err(err) }
@@ -692,7 +696,7 @@ pub fn run() {
             species, review_progress, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
             list_files, export_file_list, retry_failed, history_list, import_results, live_import, live_refresh, live_stations, remove_preview, remove_from_project, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
             online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,
-            set_deployment_country, ffmpeg_info, download_ffmpeg, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
+            set_deployment_country, set_video_rate, ffmpeg_info, download_ffmpeg, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
         .run(tauri::generate_context!())
         .expect("error while running Wildlife Network Studio");
 }

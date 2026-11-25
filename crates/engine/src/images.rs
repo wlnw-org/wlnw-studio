@@ -551,7 +551,9 @@ pub fn set_country(p: &Project, dep: i64, country: Option<&str>, admin1: Option<
     // Geofencing changes the answers, so those images run again (reviews of their boxes go with them).
     let n = p.db.execute("DELETE FROM image_models WHERE image_id IN (SELECT id FROM images WHERE deployment_id = ?1)", [dep])?;
     p.db.execute("DELETE FROM image_boxes WHERE image_id IN (SELECT id FROM images WHERE deployment_id = ?1)", [dep])?;
-    Ok(n > 0)
+    // Its videos too.
+    let v = p.db.execute("DELETE FROM video_models WHERE video_id IN (SELECT id FROM videos WHERE deployment_id = ?1)", [dep])?;
+    Ok(n + v > 0)
 }
 
 #[cfg(test)]

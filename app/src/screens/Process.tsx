@@ -36,6 +36,11 @@ export default function Process({ summary, live, refresh, onError, next, showFil
 
       {summary.images && !summary.models.some((m) => m.id === "speciesnet-4.0.3a") && <p className="note">{t("This project has {n} camera-trap images. Add the SpeciesNet pack above to find the animals in them.", { n: summary.images.total.toLocaleString() })}</p>}
       {summary.images && summary.models.some((m) => m.id === "speciesnet-4.0.3a") && <p className="muted">{t("Camera-trap images always go through SpeciesNet: MegaDetector finds animals, people and vehicles, then SpeciesNet names the animal in each box, checked against the camera's country (set it on the Recordings screen).")}</p>}
+      {summary.videos && summary.models.some((m) => m.id === "speciesnet-4.0.3a") && <p className="muted">
+        {t("Videos: Studio reads")}{" "}<select value={summary.videos.frames_per_s} disabled={summary.running}
+          onChange={(e) => api.setVideoRate(Number(e.target.value)).then(refresh).catch((x) => onError(String(x)))}>
+          {[...new Set([0.5, 1, 2, 5, summary.videos.frames_per_s])].sort((a, b) => a - b).map((r) => <option key={r} value={r}>{r.toLocaleString()}</option>)}
+        </select>{" "}{t("frames a second through MegaDetector and SpeciesNet, follows each animal from frame to frame, and keeps its sharpest frame and a short clip. More frames catch fast animals but take longer; changing it runs the videos again.")}</p>}
       {summary.models.some((m) => m.id !== "speciesnet-4.0.3a") && <div className="card">
         <h3>{t("Which models to run")}</h3>
         <label className="choice"><input type="radio" checked={auto} onChange={() => choose([])} disabled={summary.running} />
@@ -62,6 +67,7 @@ export default function Process({ summary, live, refresh, onError, next, showFil
         <div className="stats">
           {(p.files_total > 0 || !p.images_total) && <div><b>{p.files_done.toLocaleString()}</b> {t("of {total} recordings done", { total: p.files_total.toLocaleString() })}</div>}
           {p.images_total > 0 && <div><b>{p.images_done.toLocaleString()}</b> {t("of {total} images done", { total: p.images_total.toLocaleString() })}</div>}
+          {p.videos_total > 0 && <div><b>{p.videos_done.toLocaleString()}</b> {t("of {total} videos done", { total: p.videos_total.toLocaleString() })}</div>}
           {summary.running && live && live.images_per_s > 0 && <div><b>{live.images_per_s.toFixed(1)}</b> {t("images a second")}</div>}
           <div><b>{fmtHours(p.hours_done)}</b> {t("of audio")}</div>
           <div><b>{p.detections.toLocaleString()}</b> {t("detections")}</div>

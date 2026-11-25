@@ -8,6 +8,7 @@ pub mod credits;
 pub mod download;
 pub mod export;
 pub mod files;
+pub mod frames;
 pub mod history;
 pub mod images;
 pub mod import;

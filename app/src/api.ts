@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
 
 export interface Deployment { id: number; name: string; folder: string; serial: string | null; model: string | null; lat: number | null; lon: number | null; tz_offset_min: number; tz_known: boolean; files: number; done: number; hours: number; models: string[]; perch_region: boolean; images: number; country: string | null; admin1: string | null }
-export interface Progress { jobs_done: number; jobs_total: number; current_model: string | null; files_done: number; files_total: number; hours_done: number; bytes_done: number; bytes_total: number; detections: number; speed_x: number; eta_s: number | null; current: string | null; errors: number; images_done: number; images_total: number; images_per_s: number }
+export interface Progress { jobs_done: number; jobs_total: number; current_model: string | null; files_done: number; files_total: number; hours_done: number; bytes_done: number; bytes_total: number; detections: number; speed_x: number; eta_s: number | null; current: string | null; errors: number; images_done: number; images_total: number; images_per_s: number; videos_done: number; videos_total: number }
 export interface DatasetInfo { title: string; institution: string | null; people: string[]; license: string; description: string | null; contact_email: string | null }
 export interface ModelInfo { id: string; name: string; version: string; licence: string; licence_url: string; citation: string; sample_rate: number; window: number; embeds: boolean; location_filter: boolean; speed_x: number }
 export interface WncInfo { trained_at: string; classes: [string, string, number, number | null][] }
@@ -14,7 +14,7 @@ export interface SpeciesRow { label: number; model: string; scientific: string; 
 export interface Detection { id: number; file_id: number; path: string; deployment_id: number; start_s: number; end_s: number; label: number; scientific: string; common: string; model: string; confidence: number; detection_score?: number | null; in_range: boolean; utc: string | null; lat: number | null; lon: number | null; site: string; verdict: string | null }
 export interface Clip { wav: string; spec: string; width: number; height: number; offset_s: number; window_s: number; total_s: number; max_khz: number; playback: number; slowed: number }
 export interface ScanReport { found: number; added: number; without_time: number; deployments: number; images_found: number; images_added: number; images_without_time: number; videos_found: number; videos_added: number }
-export interface VideoCounts { total: number; unread: number; with_sound: number; seconds: number; ffmpeg: boolean }
+export interface VideoCounts { total: number; unread: number; with_sound: number; seconds: number; ffmpeg: boolean; frames_per_s: number }
 export interface FfmpegInfo { installed: boolean; path: string | null; download: { version: string; size: number; by: string } | null; downloading: boolean }
 export interface ImageCounts { total: number; done: number; failed: number; animals: number; people: number; vehicles: number; empty: number; boxes: number }
 export interface ImageSpeciesRow { label: number; model: string; scientific: string; common: string; boxes: number; images: number; kept: number; reviewed: number; yes: number; no: number; threshold: number; threshold_source: string; precision: number | null; max_score: number }
@@ -71,6 +71,7 @@ export const api = {
   modelCatalog: () => invoke<CatalogItem[]>("model_catalog"),
   downloadModel: (id: string) => invoke<void>("download_model", { id }),
   cancelDownload: () => invoke<void>("cancel_download"),
+  setVideoRate: (perS: number) => invoke<boolean>("set_video_rate", { perS }),
   ffmpegInfo: () => invoke<FfmpegInfo>("ffmpeg_info"),
   downloadFfmpeg: () => invoke<void>("download_ffmpeg"),
   addModelsFolder: (folder: string) => invoke<string[]>("add_models_folder", { folder }),
