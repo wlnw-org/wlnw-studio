@@ -25,6 +25,7 @@ pub mod run;
 pub mod scan;
 pub mod share;
 pub mod store;
+pub mod video;
 pub mod wnc;
 
 /// Review clips are played and drawn at 48 kHz.

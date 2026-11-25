@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
-import { api, fmtHours, isLive, modelName, modelTag, type Deployment, type LiveReport, type LiveStation, type Summary } from "../api";
+import { api, fmtBytes, fmtHours, isLive, modelName, modelTag, type Deployment, type DownloadEvent, type FfmpegInfo, type LiveReport, type LiveStation, type Summary } from "../api";
 import MapPicker from "../MapPicker";
 import { AroundRecorders, usePrefetch } from "../Online";
 import { t as tr, useT, type Vars } from "../i18n";
@@ -26,6 +27,7 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
         ? t("{found} recordings found, {added} new, and {images} camera-trap images, {imagesNew} new, in {where}.", { found: r.found.toLocaleString(), added: r.added.toLocaleString(), images: r.images_found.toLocaleString(), imagesNew: r.images_added.toLocaleString(), where })
         : t("{found} recordings found, {added} new, in {where}.", { found: r.found.toLocaleString(), added: r.added.toLocaleString(), where })) +
         (r.without_time ? " " + count(r.without_time, "{n} recording has no date in their name or metadata and will be skipped for publishing.", "{n} recordings have no date in their name or metadata and will be skipped for publishing.") : "") +
+        (r.videos_found ? " " + t("{n} videos, {added} new.", { n: r.videos_found.toLocaleString(), added: r.videos_added.toLocaleString() }) : "") +
         (r.images_without_time ? " " + count(r.images_without_time, "{n} image has no date in their EXIF data and will be skipped for publishing.", "{n} images have no date in their EXIF data and will be skipped for publishing.") : ""));
       refresh();
     } catch (e) { onError(String(e)); }
@@ -58,11 +60,12 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
       <header className="head">
         <div>
           <h2>{t("Recordings")}</h2>
-          <p className="muted">{t("Add a whole drive or SD card copy. Subfolders are searched; WAV, FLAC, MP3 and AAC (.m4a) recordings and JPEG and PNG camera-trap images are read. Files already added are skipped.")}</p>
+          <p className="muted">{t("Add a whole drive or SD card copy. Subfolders are searched; WAV, FLAC, MP3 and AAC (.m4a) recordings, JPEG and PNG camera-trap images, and MP4, MOV and AVI videos are read. Files already added are skipped.")}</p>
         </div>
         <button className="primary" onClick={add} disabled={busy}>{busy ? t("Reading files...") : t("Add a folder or drive")}</button>
       </header>
       {report && <p className="note">{report}</p>}
+      {summary.videos && <Videos v={summary.videos} refresh={refresh} onError={onError} />}
       {deps.length === 0 ? (
         <>
           <div className="empty">{t("No recordings yet. Studio reads the time and place written by AudioMoth and Song Meter recorders, and the date in file names such as {example}.", { example: "SMM01234_20250601_053000.wav" })}</div>
@@ -206,6 +209,40 @@ function Live({ refresh, onError, setReport, running }: { refresh: () => void; o
             <button className="small-btn" onClick={() => remove(s)} disabled={!!busy || running} title={t("Take this station and its detections out of the project. Nothing is changed on the station.")}>{t("Remove")}</button></td>
         </tr>)}</tbody>
       </table>}
+    </div>
+  );
+}
+
+/** Videos: how many, and FFmpeg, which Studio needs to read them (downloaded once, checked against its checksum). */
+function Videos({ v, refresh, onError }: { v: NonNullable<Summary["videos"]>; refresh: () => void; onError: (e: string) => void }) {
+  const t = useT();
+  const [info, setInfo] = useState<FfmpegInfo | null>(null);
+  const [prog, setProg] = useState<DownloadEvent | null>(null);
+  useEffect(() => { api.ffmpegInfo().then(setInfo).catch(() => {}); }, [v.ffmpeg]);
+  useEffect(() => {
+    const un = listen<DownloadEvent>("model-progress", (e) => {
+      if (e.payload.id !== "ffmpeg") return;
+      if (e.payload.finished) { setProg(null); if (e.payload.error) onError(e.payload.error); api.ffmpegInfo().then(setInfo).catch(() => {}); refresh(); }
+      else setProg(e.payload);
+    });
+    return () => { un.then((f) => f()); };
+  }, [refresh, onError]);
+  const line = count(v.total, "{n} video", "{n} videos") + (v.with_sound ? ", " + count(v.with_sound, "{n} with sound (listed with the recordings)", "{n} with sound (listed with the recordings)") : "") + ".";
+  if (v.ffmpeg) return <p className="muted">{line} {v.unread > 0 && t("{n} will be read when you process.", { n: v.unread.toLocaleString() })}</p>;
+  const busy = prog != null || info?.downloading;
+  return (
+    <div className="card">
+      <h3>{t("Videos need FFmpeg")}</h3>
+      <p className="muted">{line} {t("Studio reads videos with FFmpeg, a free program. Download it once here, or install it yourself (Homebrew, apt or ffmpeg.org) and Studio will find it.")}</p>
+      {info?.download ? (
+        <div className="row tight">
+          {busy ? <><span className="small">{prog ? t("{done} of {total}", { done: fmtBytes(prog.done), total: fmtBytes(prog.total) }) : t("Starting...")}</span>
+              <button className="small-btn" onClick={() => api.cancelDownload()}>{t("Pause")}</button></>
+            : <button className="primary" onClick={() => api.downloadFfmpeg().then(() => setInfo({ ...info, downloading: true })).catch((e) => onError(String(e)))}>
+                {t("Download FFmpeg ({size})", { size: fmtBytes(info.download.size) })}</button>}
+          <small className="muted">{t("FFmpeg {version}, built by {by}. GNU GPL.", { version: info.download.version, by: info.download.by })}</small>
+        </div>
+      ) : <p className="warn">{t("There is no FFmpeg download for this computer: install FFmpeg yourself, then open this project again.")}</p>}
     </div>
   );
 }

@@ -151,6 +151,8 @@ struct RunStats { files: HashMap<i64, f64>, failed: std::collections::HashSet<i6
 pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, on_progress: impl FnMut(&Progress)) -> Result<Progress> {
     crate::birdnet::boost_thread();
     history::close_interrupted(p)?;
+    // Videos added before FFmpeg was installed: read them now, so their sound is processed too.
+    crate::video::refresh(p)?;
     let have: Vec<String> = models.iter().map(|m| m.info().id.clone()).collect();
     let mut used: Vec<String> = plan(p, &have)?.into_values().flatten().collect();
     used.sort();

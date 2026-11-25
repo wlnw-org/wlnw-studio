@@ -6,14 +6,16 @@ export interface Progress { jobs_done: number; jobs_total: number; current_model
 export interface DatasetInfo { title: string; institution: string | null; people: string[]; license: string; description: string | null; contact_email: string | null }
 export interface ModelInfo { id: string; name: string; version: string; licence: string; licence_url: string; citation: string; sample_rate: number; window: number; embeds: boolean; location_filter: boolean; speed_x: number }
 export interface WncInfo { trained_at: string; classes: [string, string, number, number | null][] }
-export interface Summary { path: string; name: string; deployments: Deployment[]; progress: Progress; running: boolean; dataset: DatasetInfo; models: ModelInfo[]; model_errors: string[]; chosen: string[]; wnc: WncInfo | null; space: { needed: number; free: number | null; enough: boolean }; images: ImageCounts | null }
+export interface Summary { path: string; name: string; deployments: Deployment[]; progress: Progress; running: boolean; dataset: DatasetInfo; models: ModelInfo[]; model_errors: string[]; chosen: string[]; wnc: WncInfo | null; space: { needed: number; free: number | null; enough: boolean }; images: ImageCounts | null; videos: VideoCounts | null }
 export interface Similar { window_id: number; file_id: number; path: string; start_s: number; end_s: number; similarity: number; site: string }
 export interface TrainReport { classes: [string, string, number, number, number | null][]; skipped: [string, number][]; detections: number }
 export interface ReviewProgress { answers: number; today: number; streak_days: number; species_fitted: number; species_checkable: number; removed: number; recovered: number }
 export interface SpeciesRow { label: number; model: string; scientific: string; common: string; detections: number; kept: number; reviewed: number; yes: number; no: number; threshold: number; threshold_source: string; precision: number | null; max_conf: number }
 export interface Detection { id: number; file_id: number; path: string; deployment_id: number; start_s: number; end_s: number; label: number; scientific: string; common: string; model: string; confidence: number; detection_score?: number | null; in_range: boolean; utc: string | null; lat: number | null; lon: number | null; site: string; verdict: string | null }
 export interface Clip { wav: string; spec: string; width: number; height: number; offset_s: number; window_s: number; total_s: number; max_khz: number; playback: number; slowed: number }
-export interface ScanReport { found: number; added: number; without_time: number; deployments: number; images_found: number; images_added: number; images_without_time: number }
+export interface ScanReport { found: number; added: number; without_time: number; deployments: number; images_found: number; images_added: number; images_without_time: number; videos_found: number; videos_added: number }
+export interface VideoCounts { total: number; unread: number; with_sound: number; seconds: number; ffmpeg: boolean }
+export interface FfmpegInfo { installed: boolean; path: string | null; download: { version: string; size: number; by: string } | null; downloading: boolean }
 export interface ImageCounts { total: number; done: number; failed: number; animals: number; people: number; vehicles: number; empty: number; boxes: number }
 export interface ImageSpeciesRow { label: number; model: string; scientific: string; common: string; boxes: number; images: number; kept: number; reviewed: number; yes: number; no: number; threshold: number; threshold_source: string; precision: number | null; max_score: number }
 export interface ImageBox { id: number; model: string; kind: "animal" | "human" | "vehicle" | "blank" | "unknown"; category: string; conf: number; bbox: [number, number, number, number]; species: number | null; scientific: string; common: string; score: number; source: string; verdict: string | null; top: [string, number][] }
@@ -69,6 +71,8 @@ export const api = {
   modelCatalog: () => invoke<CatalogItem[]>("model_catalog"),
   downloadModel: (id: string) => invoke<void>("download_model", { id }),
   cancelDownload: () => invoke<void>("cancel_download"),
+  ffmpegInfo: () => invoke<FfmpegInfo>("ffmpeg_info"),
+  downloadFfmpeg: () => invoke<void>("download_ffmpeg"),
   addModelsFolder: (folder: string) => invoke<string[]>("add_models_folder", { folder }),
   openProject: (file: string) => invoke<void>("open_project", { file }),
   summary: () => invoke<Summary>("summary"),

@@ -1,4 +1,4 @@
-//! Streaming audio reader: any WAV, FLAC, MP3 or AAC (.m4a, .aac), mixed to mono and resampled to 48 kHz, handed out in 3 s windows.
+//! Streaming audio reader: any WAV, FLAC, MP3 or AAC (.m4a, .aac), or the sound of a video (through FFmpeg), mixed to mono and resampled to 48 kHz, handed out in 3 s windows.
 //! Memory stays small however long the file is.
 use crate::SR;
 use anyhow::{anyhow, Context, Result};
@@ -12,12 +12,20 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 
+/// Where the samples come from: Symphonia for sound files, FFmpeg for the sound track of a video.
+enum Src {
+    Sym {
+        format: Box<dyn FormatReader>,
+        decoder: Box<dyn Decoder>,
+        track: u32,
+        /// The track's timestamp unit (MP4 tracks may count in something other than samples).
+        time_base: Option<symphonia::core::units::TimeBase>,
+    },
+    Ff { child: std::process::Child },
+}
+
 pub struct AudioStream {
-    format: Box<dyn FormatReader>,
-    decoder: Box<dyn Decoder>,
-    track: u32,
-    /// The track's timestamp unit (MP4 tracks may count in something other than samples).
-    time_base: Option<symphonia::core::units::TimeBase>,
+    src: Src,
     pub source_rate: u32,
     /// The rate windows are handed out at.
     pub rate: u32,
@@ -31,6 +39,7 @@ pub struct AudioStream {
 
 /// The sample rate written in a recording's header, without decoding any audio.
 pub fn probe_rate(path: &Path) -> Option<u32> {
+    if crate::video::is_video(path) { return crate::video::probe(path).ok()?.audio_rate; }
     let file = std::fs::File::open(path).ok()?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -41,6 +50,7 @@ pub fn probe_rate(path: &Path) -> Option<u32> {
 
 /// A recording's length from its header (frames / rate), without decoding; None when the header does not say (some MP3s).
 pub fn duration(path: &Path) -> Option<f64> {
+    if crate::video::is_video(path) { return crate::video::probe(path).ok()?.duration_s; }
     let file = std::fs::File::open(path).ok()?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -65,6 +75,7 @@ pub fn open_native(path: &Path) -> Result<AudioStream> {
 
 /// Opens a recording, resampled to `rate` (48 kHz for BirdNET, 32 kHz for Perch).
 pub fn open(path: &Path, rate: u32) -> Result<AudioStream> {
+    if crate::video::is_video(path) { return open_video(path, rate, 0.0); }
     let file = std::fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
     let mut hint = Hint::new();
@@ -79,21 +90,42 @@ pub fn open(path: &Path, rate: u32) -> Result<AudioStream> {
     if !(1_000..=768_000).contains(&source_rate) { return Err(anyhow!("unsupported sample rate {source_rate} Hz")); }
     let decoder = symphonia::default::get_codecs().make(&track.codec_params, &DecoderOptions::default())?;
     let resampler = if source_rate == rate { None } else { Some(FftFixedIn::<f32>::new(source_rate as usize, rate as usize, 4096, 2, 1)?) };
-    Ok(AudioStream { track: track.id, time_base: track.codec_params.time_base, format, decoder, source_rate, rate, resampler, pending: Vec::new(), out: Vec::new(), eof: false, position: 0 })
+    Ok(AudioStream { src: Src::Sym { track: track.id, time_base: track.codec_params.time_base, format, decoder }, source_rate, rate, resampler, pending: Vec::new(), out: Vec::new(), eof: false, position: 0 })
+}
+
+/// A video's sound track from `start_s`, decoded and resampled to `rate` by FFmpeg.
+fn open_video(path: &Path, rate: u32, start_s: f64) -> Result<AudioStream> {
+    let child = crate::video::sound(path, rate, start_s)?;
+    Ok(AudioStream { src: Src::Ff { child }, source_rate: rate, rate, resampler: None, pending: Vec::new(), out: Vec::new(), eof: false, position: 0 })
+}
+
+impl Drop for AudioStream {
+    fn drop(&mut self) {
+        if let Src::Ff { child } = &mut self.src { let _ = child.kill(); let _ = child.wait(); }
+    }
 }
 
 impl AudioStream {
     /// Decodes one packet into `pending` (mono, source rate). Returns false at the end of the file.
     fn decode_packet(&mut self) -> Result<bool> {
+        let (format, decoder, track) = match &mut self.src {
+            Src::Sym { format, decoder, track, .. } => (format, decoder, *track),
+            Src::Ff { child } => {
+                let got = crate::video::read_samples(child.stdout.as_mut().ok_or_else(|| anyhow!("FFmpeg gave no output"))?, 16_384)?;
+                if got.is_empty() { return Ok(false); }
+                self.pending.extend_from_slice(&got);
+                return Ok(true);
+            }
+        };
         loop {
-            let packet = match self.format.next_packet() {
+            let packet = match format.next_packet() {
                 Ok(p) => p,
                 Err(SymError::IoError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(false),
                 Err(SymError::ResetRequired) => return Ok(false),
                 Err(e) => return Err(e.into()),
             };
-            if packet.track_id() != self.track { continue; }
-            let decoded = match self.decoder.decode(&packet) {
+            if packet.track_id() != track { continue; }
+            let decoded = match decoder.decode(&packet) {
                 Ok(d) => d,
                 Err(SymError::DecodeError(_)) => continue, // a damaged packet: skip it, as recorders sometimes write one
                 Err(e) => return Err(e.into()),
@@ -149,10 +181,18 @@ impl AudioStream {
 }
 
 /// Reads `secs` seconds starting at `start_s` (48 kHz mono), for review clips.
-pub fn read_segment(path: &Path, start_s: f64, secs: f64) -> Result<Vec<f32>> { segment(open(path, SR)?, start_s, secs) }
+pub fn read_segment(path: &Path, start_s: f64, secs: f64) -> Result<Vec<f32>> {
+    // FFmpeg seeks itself.
+    if crate::video::is_video(path) { return segment(open_video(path, SR, start_s)?, 0.0, secs); }
+    segment(open(path, SR)?, start_s, secs)
+}
 
 /// Like `read_segment`, at the recording's own sample rate (for ultrasonic bat clips). Returns the samples and that rate.
 pub fn read_segment_native(path: &Path, start_s: f64, secs: f64) -> Result<(Vec<f32>, u32)> {
+    if crate::video::is_video(path) {
+        let rate = probe_rate(path).ok_or_else(|| anyhow!("this video has no sound"))?;
+        return Ok((segment(open_video(path, rate, start_s)?, 0.0, secs)?, rate));
+    }
     let s = open_native(path)?;
     let rate = s.rate;
     Ok((segment(s, start_s, secs)?, rate))
@@ -166,9 +206,11 @@ fn segment(mut s: AudioStream, start_s: f64, secs: f64) -> Result<Vec<f32>> {
     let mut at = 0f64;
     if start_s > 0.0 {
         let t = Time { seconds: start_s.floor() as u64, frac: start_s.fract() };
-        if let Ok(done) = s.format.seek(SeekMode::Accurate, SeekTo::Time { time: t, track_id: Some(s.track) }) {
-            s.decoder.reset();
-            at = match s.time_base { Some(tb) => { let t = tb.calc_time(done.actual_ts); t.seconds as f64 + t.frac }, None => done.actual_ts as f64 / s.source_rate as f64 };
+        if let Src::Sym { format, decoder, track, time_base } = &mut s.src {
+            if let Ok(done) = format.seek(SeekMode::Accurate, SeekTo::Time { time: t, track_id: Some(*track) }) {
+                decoder.reset();
+                at = match time_base { Some(tb) => { let t = tb.calc_time(done.actual_ts); t.seconds as f64 + t.frac }, None => done.actual_ts as f64 / s.source_rate as f64 };
+            }
         }
     }
     let skip = ((start_s - at).max(0.0) * rate) as usize;

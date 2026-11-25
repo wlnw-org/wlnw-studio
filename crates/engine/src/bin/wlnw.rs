@@ -31,7 +31,9 @@ use std::sync::atomic::AtomicBool;
 use wlnw_engine::{agreement, export, import, files, history, images, models, occupancy, publish, review, run, scan, store::Project, wnc};
 
 fn models_dir(dir: Option<&String>) -> PathBuf {
-    dir.map(PathBuf::from).or_else(|| std::env::var("WLNW_MODELS").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("models"))
+    let d = dir.map(PathBuf::from).or_else(|| std::env::var("WLNW_MODELS").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("models"));
+    wlnw_engine::video::set_tools_dir(&d);
+    d
 }
 
 fn main() -> Result<()> {

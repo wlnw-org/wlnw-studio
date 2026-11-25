@@ -107,7 +107,7 @@ pub fn installed(pack: &Pack, models_dir: &Path) -> bool {
     required(pack).iter().all(|f| d.join(f).exists())
 }
 
-fn sha256_file(path: &Path) -> Result<String> {
+pub(crate) fn sha256_file(path: &Path) -> Result<String> {
     let mut f = std::fs::File::open(path)?;
     let mut h = Sha256::new();
     let mut buf = vec![0u8; 1 << 20];
@@ -149,7 +149,7 @@ pub fn install(pack: &Pack, models_dir: &Path, stop: &AtomicBool, mut progress: 
     Ok(())
 }
 
-fn fetch(url: &str, part: &Path, size: u64, stop: &AtomicBool, mut progress: impl FnMut(u64)) -> Result<()> {
+pub(crate) fn fetch(url: &str, part: &Path, size: u64, stop: &AtomicBool, mut progress: impl FnMut(u64)) -> Result<()> {
     let have = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
     if have > size { std::fs::remove_file(part)?; }
     let have = have.min(size);

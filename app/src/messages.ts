@@ -2,6 +2,16 @@
 // Keep {placeholders} as they are. Product and model names, file formats and species names stay untranslated.
 
 const fr: Record<string, string> = {
+  "{n} videos, {added} new.": "{n} vidéos, dont {added} nouvelles.",
+  "{n} video": "{n} vidéo",
+  "{n} videos": "{n} vidéos",
+  "{n} with sound (listed with the recordings)": "{n} avec du son (listées avec les enregistrements)",
+  "{n} will be read when you process.": "{n} seront lues au prochain traitement.",
+  "Videos need FFmpeg": "Les vidéos ont besoin de FFmpeg",
+  "Studio reads videos with FFmpeg, a free program. Download it once here, or install it yourself (Homebrew, apt or ffmpeg.org) and Studio will find it.": "Studio lit les vidéos avec FFmpeg, un programme libre. Téléchargez-le une fois ici, ou installez-le vous-même (Homebrew, apt ou ffmpeg.org) et Studio le trouvera.",
+  "Download FFmpeg ({size})": "Télécharger FFmpeg ({size})",
+  "FFmpeg {version}, built by {by}. GNU GPL.": "FFmpeg {version}, compilé par {by}. GNU GPL.",
+  "There is no FFmpeg download for this computer: install FFmpeg yourself, then open this project again.": "Il n'y a pas de téléchargement de FFmpeg pour cet ordinateur : installez FFmpeg vous-même, puis rouvrez ce projet.",
   "Your answers kept {n} detections that the default would have dropped.": "Vos réponses ont gardé {n} détections que le seuil par défaut aurait écartées.",
   "{name} now has its own threshold. Your answers say these detections are not reliable, so none are kept unless you mark them yes.": "{name} a maintenant son propre seuil. D'après vos réponses, ces détections ne sont pas fiables : aucune n'est gardée sauf si vous répondez oui.",
   "{name} now has its own threshold: Studio keeps {kept} detections, estimated {pct}% right.": "{name} a maintenant son propre seuil : Studio garde {kept} détections, justes à environ {pct} %.",
@@ -331,7 +341,7 @@ const fr: Record<string, string> = {
   "{n} row had no species (noise or no ID).": "{n} ligne n'avait pas d'espèce (bruit ou sans identification).",
   "{n} rows had no species (noise or no ID).": "{n} lignes n'avaient pas d'espèce (bruit ou sans identification).",
   "Review them on the Review screen.": "Vérifiez-les sur l'écran Vérification.",
-  "Add a whole drive or SD card copy. Subfolders are searched; WAV, FLAC, MP3 and AAC (.m4a) recordings and JPEG and PNG camera-trap images are read. Files already added are skipped.": "Ajoutez un disque entier ou la copie d'une carte SD. Les sous-dossiers sont parcourus ; les enregistrements WAV, FLAC, MP3 et AAC (.m4a) et les images JPEG et PNG de pièges photographiques sont lus. Les fichiers déjà ajoutés sont ignorés.",
+  "Add a whole drive or SD card copy. Subfolders are searched; WAV, FLAC, MP3 and AAC (.m4a) recordings, JPEG and PNG camera-trap images, and MP4, MOV and AVI videos are read. Files already added are skipped.": "Ajoutez un disque entier ou la copie d'une carte SD. Les sous-dossiers sont parcourus ; les enregistrements WAV, FLAC, MP3 et AAC (.m4a) et les images JPEG et PNG de pièges photographiques et les vidéos MP4, MOV et AVI sont lus. Les fichiers déjà ajoutés sont ignorés.",
   "Reading files...": "Lecture des fichiers...",
   "Add a folder or drive": "Ajouter un dossier ou un disque",
   "No recordings yet. Studio reads the time and place written by AudioMoth and Song Meter recorders, and the date in file names such as {example}.": "Pas encore d'enregistrements. Studio lit l'heure et le lieu inscrits par les enregistreurs AudioMoth et Song Meter, ainsi que la date dans les noms de fichiers comme {example}.",
@@ -542,6 +552,16 @@ const fr: Record<string, string> = {
 };
 
 const pt: Record<string, string> = {
+  "{n} videos, {added} new.": "{n} vídeos, {added} novos.",
+  "{n} video": "{n} vídeo",
+  "{n} videos": "{n} vídeos",
+  "{n} with sound (listed with the recordings)": "{n} com som (listados com as gravações)",
+  "{n} will be read when you process.": "{n} serão lidos no próximo processamento.",
+  "Videos need FFmpeg": "Os vídeos precisam do FFmpeg",
+  "Studio reads videos with FFmpeg, a free program. Download it once here, or install it yourself (Homebrew, apt or ffmpeg.org) and Studio will find it.": "O Studio lê vídeos com o FFmpeg, um programa livre. Baixe-o uma vez aqui ou instale-o você mesmo (Homebrew, apt ou ffmpeg.org) e o Studio vai encontrá-lo.",
+  "Download FFmpeg ({size})": "Baixar o FFmpeg ({size})",
+  "FFmpeg {version}, built by {by}. GNU GPL.": "FFmpeg {version}, compilado por {by}. GNU GPL.",
+  "There is no FFmpeg download for this computer: install FFmpeg yourself, then open this project again.": "Não há download do FFmpeg para este computador: instale o FFmpeg você mesmo e abra este projeto de novo.",
   "Your answers kept {n} detections that the default would have dropped.": "Suas respostas mantiveram {n} detecções que o limiar padrão descartaria.",
   "{name} now has its own threshold. Your answers say these detections are not reliable, so none are kept unless you mark them yes.": "{name} agora tem seu próprio limiar. Pelas suas respostas, essas detecções não são confiáveis: nenhuma é mantida, a menos que você marque sim.",
   "{name} now has its own threshold: Studio keeps {kept} detections, estimated {pct}% right.": "{name} agora tem seu próprio limiar: o Studio mantém {kept} detecções, com cerca de {pct}% de acerto.",
@@ -871,7 +891,7 @@ const pt: Record<string, string> = {
   "{n} row had no species (noise or no ID).": "{n} linha não tinha espécie (ruído ou sem identificação).",
   "{n} rows had no species (noise or no ID).": "{n} linhas não tinham espécie (ruído ou sem identificação).",
   "Review them on the Review screen.": "Revise-as na tela Revisão.",
-  "Add a whole drive or SD card copy. Subfolders are searched; WAV, FLAC, MP3 and AAC (.m4a) recordings and JPEG and PNG camera-trap images are read. Files already added are skipped.": "Adicione um disco inteiro ou a cópia de um cartão SD. As subpastas são percorridas; gravações WAV, FLAC, MP3 e AAC (.m4a) e imagens JPEG e PNG de armadilhas fotográficas são lidas. Arquivos já adicionados são ignorados.",
+  "Add a whole drive or SD card copy. Subfolders are searched; WAV, FLAC, MP3 and AAC (.m4a) recordings, JPEG and PNG camera-trap images, and MP4, MOV and AVI videos are read. Files already added are skipped.": "Adicione um disco inteiro ou a cópia de um cartão SD. As subpastas são percorridas; gravações WAV, FLAC, MP3 e AAC (.m4a) , imagens JPEG e PNG de armadilhas fotográficas e vídeos MP4, MOV e AVI são lidos. Arquivos já adicionados são ignorados.",
   "Reading files...": "Lendo arquivos...",
   "Add a folder or drive": "Adicionar uma pasta ou disco",
   "No recordings yet. Studio reads the time and place written by AudioMoth and Song Meter recorders, and the date in file names such as {example}.": "Ainda não há gravações. O Studio lê o horário e o local gravados pelos gravadores AudioMoth e Song Meter, e a data em nomes de arquivo como {example}.",
