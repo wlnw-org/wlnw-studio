@@ -163,6 +163,7 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut o
                     }
                     tx.execute("INSERT OR REPLACE INTO video_models (video_id, model, status, error, frames, per_s, processed_at) VALUES (?1, ?2, 'done', NULL, ?3, ?4, datetime('now'))",
                         params![video_id, id, frames as i64, per_s])?;
+                    stats.sightings += crate::sightings::build(p, &tx, *video_id, &id)?;
                     tx.commit()?;
                     stats.videos += 1;
                     stats.frames += frames as i64;

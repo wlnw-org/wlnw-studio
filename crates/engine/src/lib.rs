@@ -25,6 +25,7 @@ pub mod review;
 pub mod run;
 pub mod scan;
 pub mod share;
+pub mod sightings;
 pub mod store;
 pub mod video;
 pub mod wnc;

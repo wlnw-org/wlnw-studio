@@ -75,7 +75,8 @@ pub fn counts(p: &Project, model: &str) -> Result<Counts> {
 
 /// Images still to run through `model`.
 pub fn todo(p: &Project, model: &str) -> Result<i64> {
-    Ok(p.db.query_row("SELECT COUNT(*) FROM images i WHERE NOT EXISTS (SELECT 1 FROM image_models m WHERE m.image_id = i.id AND m.model = ?1)", [model], |r| r.get(0))?)
+    // Video sightings are made by frames.rs, never run as photos.
+    Ok(p.db.query_row("SELECT COUNT(*) FROM images i WHERE i.video_id IS NULL AND NOT EXISTS (SELECT 1 FROM image_models m WHERE m.image_id = i.id AND m.model = ?1)", [model], |r| r.get(0))?)
 }
 
 /// Country (ISO 3166-1 alpha-3) and US state of a deployment, for SpeciesNet's geofencing.
@@ -96,7 +97,7 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut o
         let id = m.info().id.clone();
         let rows: Vec<(i64, String, i64)> = {
             let mut st = p.db.prepare("SELECT i.id, i.path, i.deployment_id FROM images i WHERE NOT EXISTS
-                (SELECT 1 FROM image_models m WHERE m.image_id = i.id AND m.model = ?1) ORDER BY i.deployment_id, i.taken_local, i.path")?;
+                (SELECT 1 FROM image_models m WHERE m.image_id = i.id AND m.model = ?1) AND i.video_id IS NULL ORDER BY i.deployment_id, i.taken_local, i.path")?;
             let rows = st.query_map([&id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
             rows
         };
@@ -549,8 +550,8 @@ pub fn set_country(p: &Project, dep: i64, country: Option<&str>, admin1: Option<
     if before == (country.clone(), admin1.clone()) { return Ok(false); }
     p.db.execute("UPDATE deployments SET country = ?2, admin1 = ?3 WHERE id = ?1", params![dep, country, admin1])?;
     // Geofencing changes the answers, so those images run again (reviews of their boxes go with them).
-    let n = p.db.execute("DELETE FROM image_models WHERE image_id IN (SELECT id FROM images WHERE deployment_id = ?1)", [dep])?;
-    p.db.execute("DELETE FROM image_boxes WHERE image_id IN (SELECT id FROM images WHERE deployment_id = ?1)", [dep])?;
+    let n = p.db.execute("DELETE FROM image_models WHERE image_id IN (SELECT id FROM images WHERE deployment_id = ?1 AND video_id IS NULL)", [dep])?;
+    p.db.execute("DELETE FROM image_boxes WHERE image_id IN (SELECT id FROM images WHERE deployment_id = ?1 AND video_id IS NULL)", [dep])?;
     // Its videos too.
     let v = p.db.execute("DELETE FROM video_models WHERE video_id IN (SELECT id FROM videos WHERE deployment_id = ?1)", [dep])?;
     Ok(n + v > 0)

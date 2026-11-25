@@ -86,6 +86,9 @@ pub fn remove(p: &Project, t: &Target) -> Result<Counts> {
         .query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
     let refit: Vec<(i64, String)> = tx.prepare("SELECT DISTINCT d.species, d.model FROM detections d JOIN reviews r ON r.detection_id = d.id WHERE d.file_id IN (SELECT id FROM rm_files)")?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+    // Stills and clips Studio cut from the recorders' videos (never the videos themselves).
+    let media: Vec<(String, Option<String>)> = tx.prepare("SELECT path, clip FROM images WHERE video_id IS NOT NULL AND deployment_id IN (SELECT id FROM rm_deps)")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
     // Children first, each in one pass (the cascades would look rows up one by one, and reviews_other has no index on
     // detection_id alone). "shared" remembers ids sent to wlnw.org; a later detection could reuse a removed id.
     tx.execute_batch("
@@ -103,12 +106,15 @@ pub fn remove(p: &Project, t: &Target) -> Result<Counts> {
         DELETE FROM live_clips WHERE file_id IN (SELECT id FROM rm_files);
         DELETE FROM files WHERE id IN (SELECT id FROM rm_files);
         DELETE FROM images WHERE deployment_id IN (SELECT id FROM rm_deps);
+        DELETE FROM videos WHERE deployment_id IN (SELECT id FROM rm_deps);
         DELETE FROM deployments WHERE id IN (SELECT id FROM rm_deps);
         DROP TABLE temp.rm_dets; DROP TABLE temp.rm_wins;")?;
     for k in &t.stations { tx.execute("DELETE FROM settings WHERE key = ?1", [format!("{}{k}", live::PREFIX)])?; }
     clear(&tx);
     tx.commit()?;
     for (species, model) in refit { review::fit_threshold(p, species, &model, review::TARGET)?; }
+    let media_dir = crate::sightings::media_dir(&p.path);
+    for (still, clip) in media { for f in std::iter::once(still).chain(clip) { if Path::new(&f).starts_with(&media_dir) { std::fs::remove_file(f).ok(); } } }
     // Clips Studio downloaded (never the user's recordings): only inside "<project> clips".
     let root = clips_root(&p.path);
     for c in clips {

@@ -13,6 +13,7 @@
 //!   wlnw species <project.wlnw>
 //!   wlnw verdict <project.wlnw> <detection id> yes|no|unsure
 //!   wlnw images <project.wlnw>                      camera-trap images: counts and species
+//!   wlnw sightings <project.wlnw>                   rebuild video sightings from the frames already read, and list them
 //!   wlnw image-verdict <project.wlnw> <box id> yes|no|unsure
 //!   wlnw example <project.wlnw> <detection id> <scientific name> [absent]
 //!   wlnw similar <project.wlnw> <detection id> [n]
@@ -79,6 +80,11 @@ fn main() -> Result<()> {
             let c = images::counts(&p, wlnw_engine::camtrap::ID)?;
             println!("{} images: {} processed, {} failed; {} with animals, {} with people, {} with vehicles, {} empty", c.total, c.done, c.failed, c.animals, c.people, c.vehicles, c.empty);
             for s in images::species(&p)? { println!("{:>6} boxes {:>6} images {:>6} kept  t={:.2} ({})  {} / {}", s.boxes, s.images, s.kept, s.threshold, s.threshold_source, s.common, s.scientific); }
+        }
+        "sightings" => {
+            let p = proj()?;
+            println!("{} sightings", wlnw_engine::sightings::rebuild_all(&p)?);
+            for s in wlnw_engine::sightings::list(&p)? { println!("{:>7.1} {:>7.1}  {:<8} {:.2}  {}  {}", s.start_s, s.end_s, s.kind, s.score, s.name, s.video); }
         }
         "image-verdict" => images::set_verdict(&proj()?, a[3].parse()?, Some(a[4].as_str()))?,
         "use" => proj()?.set_setting("models", &serde_json::to_string(&a[3..].to_vec())?)?,

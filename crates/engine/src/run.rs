@@ -94,7 +94,7 @@ pub fn progress(p: &Project, plan: &HashMap<i64, Vec<String>>) -> Result<Progres
 pub fn progress_all(p: &Project, plan: &HashMap<i64, Vec<String>>, have: &[String]) -> Result<Progress> {
     let mut pr = progress(p, plan)?;
     if have.iter().any(|m| m == crate::camtrap::ID) {
-        pr.images_total = p.db.query_row("SELECT COUNT(*) FROM images", [], |r| r.get(0))?;
+        pr.images_total = p.db.query_row("SELECT COUNT(*) FROM images WHERE video_id IS NULL", [], |r| r.get(0))?;
         pr.images_done = pr.images_total - crate::images::todo(p, crate::camtrap::ID)?;
         pr.jobs_total += pr.images_total;
         pr.jobs_done += pr.images_done;
