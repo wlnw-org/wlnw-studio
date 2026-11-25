@@ -151,7 +151,7 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
             "review": { "status": if d.verdict.as_deref() == Some("yes") { "confirmed" } else { "unreviewed" } },
             "source": { "system": "wlnw-studio", "systemVersion": env!("CARGO_PKG_VERSION"), "sourceRecordId": d.id.to_string() },
             "license": i.license,
-            "dataset": { "datasetId": ds, "title": i.title, "rightsHolder": i.institution, "recordedBy": i.people },
+            "dataset": wdx_dataset(&ds, &i),
         });
         if d.lat.is_none() { continue; }
         writeln!(f, "{ev}")?;
@@ -174,12 +174,19 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
             "review": { "status": if o.verdict.as_deref() == Some("yes") { "confirmed" } else { "unreviewed" } },
             "source": { "system": "wlnw-studio", "systemVersion": env!("CARGO_PKG_VERSION"), "sourceRecordId": format!("img{}", o.box_id) },
             "license": i.license,
-            "dataset": { "datasetId": ds, "title": i.title, "rightsHolder": i.institution, "recordedBy": i.people },
+            "dataset": wdx_dataset(&ds, &i),
         });
         writeln!(f, "{ev}")?;
         n_img += 1;
     }
     Ok(rows.len() + n_img)
+}
+
+/// The WDX dataset block. WDX wants text where a field is given, so a project with no institution leaves rightsHolder out.
+fn wdx_dataset(ds: &str, i: &DatasetInfo) -> serde_json::Value {
+    let mut d = serde_json::json!({ "datasetId": ds, "title": i.title, "recordedBy": i.people });
+    if let Some(r) = i.institution.as_deref().filter(|r| !r.trim().is_empty()) { d["rightsHolder"] = r.into(); }
+    d
 }
 
 /// The WDX media block of a camera-trap record: the photo, or for a video sighting the video with when the animal was in

@@ -699,6 +699,8 @@ mod tests {
         assert_eq!(ev["media"]["fileName"], "IMAG0042.AVI");
         assert_eq!((ev["media"]["startOffsetSeconds"].as_f64(), ev["media"]["durationSeconds"].as_f64()), (Some(2.0), Some(10.0)));
         assert_eq!(ev["media"]["region"]["frame"], 210);
+        // No institution set: no rightsHolder (WDX wants text there, not null).
+        assert!(ev["dataset"].get("rightsHolder").is_none());
         // Darwin Core: the interval in view, the video as the media, the seconds in the remarks.
         let out = dir.join("dwca.zip");
         crate::export::dwca(&p, &out).unwrap();
