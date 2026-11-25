@@ -113,7 +113,7 @@ pub fn remove(p: &Project, t: &Target) -> Result<Counts> {
     clear(&tx);
     tx.commit()?;
     for (species, model) in refit { review::fit_threshold(p, species, &model, review::TARGET)?; }
-    let media_dir = crate::sightings::media_dir(&p.path);
+    let media_dir = std::path::absolute(crate::sightings::media_dir(&p.path))?;
     for (still, clip) in media { for f in std::iter::once(still).chain(clip) { if Path::new(&f).starts_with(&media_dir) { std::fs::remove_file(f).ok(); } } }
     // Clips Studio downloaded (never the user's recordings): only inside "<project> clips".
     let root = clips_root(&p.path);

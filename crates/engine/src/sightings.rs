@@ -162,7 +162,8 @@ pub fn build(p: &Project, tx: &Transaction, video_id: i64, model: &str) -> Resul
     let tracks = track(boxes);
     if tracks.is_empty() { return Ok(0); }
     let video = Path::new(&path);
-    let dir = media_dir(&p.path);
+    // Full paths, so the stills and clips are found whatever folder the app or CLI runs from.
+    let dir = std::path::absolute(media_dir(&p.path))?;
     std::fs::create_dir_all(&dir)?;
     let duration: Option<f64> = tx.query_row("SELECT duration_s FROM videos WHERE id = ?1", [video_id], |r| r.get(0))?;
     let start_time = taken.as_deref().and_then(|t| chrono::NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S").ok());

@@ -230,7 +230,7 @@ async fn image_thumb(file: String, max: u32) -> R<String> {
 /// A sighting's clip (MP4), only from this project's own media folder.
 #[tauri::command]
 async fn video_clip(file: String, s: State<'_, App>) -> R<tauri::ipc::Response> {
-    let dir = wlnw_engine::sightings::media_dir(&path(&s)?);
+    let dir = std::path::absolute(wlnw_engine::sightings::media_dir(&path(&s)?)).map_err(err)?;
     tauri::async_runtime::spawn_blocking(move || {
         let f = Path::new(&file);
         if !f.starts_with(&dir) || f.components().any(|c| matches!(c, std::path::Component::ParentDir)) { return Err("Not a clip of this project.".to_string()); }
