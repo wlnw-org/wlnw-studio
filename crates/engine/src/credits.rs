@@ -49,14 +49,14 @@ pub const CREDITS: &[Credit] = &[
         licence: "Apache 2.0", licence_url: "https://www.apache.org/licenses/LICENSE-2.0",
         citation: "Gadot, T. et al. (2024). To crop or not to crop: Comparing whole-image and cropped classification on a large dataset of camera trap images. IET Computer Vision. https://doi.org/10.1049/cvi2.12318",
         paper_url: "https://doi.org/10.1049/cvi2.12318", source_url: "https://github.com/google/cameratrapai",
-        note: "Names the animals in camera trap photos.",
+        note: "Names the animals in camera trap photos and in frames of camera trap videos.",
     },
     Credit {
         id: "megadetector", name: "MegaDetector v6 MIT", by: "Microsoft AI for Good Lab (Pytorch-Wildlife)",
         licence: "MIT code, CC BY 4.0 weights", licence_url: "https://creativecommons.org/licenses/by/4.0/",
         citation: "Hernandez, A. et al. (2024). Pytorch-Wildlife: A Collaborative Deep Learning Framework for Conservation. arXiv:2405.12930. https://arxiv.org/abs/2405.12930",
         paper_url: "https://arxiv.org/abs/2405.12930", source_url: "https://github.com/microsoft/CameraTraps",
-        note: "Finds animals, people and vehicles in camera trap photos.",
+        note: "Finds animals, people and vehicles in camera trap photos and in frames of camera trap videos.",
     },
 ];
 
