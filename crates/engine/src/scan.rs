@@ -1,6 +1,6 @@
 //! Import: find every recording under a folder or drive, read what each knows about itself, and group them into deployments
 //! (one recorder at one place), by serial number when the files carry one, else by folder. Camera-trap images (JPEG, PNG)
-//! found on the way are added too, grouped by folder the same way.
+//! and videos (MP4, MOV, AVI) found on the way are added too, grouped by folder the same way.
 use crate::meta;
 use crate::store::Project;
 use anyhow::Result;
@@ -18,6 +18,9 @@ pub struct ScanReport {
     #[serde(default)] pub images_found: usize,
     #[serde(default)] pub images_added: usize,
     #[serde(default)] pub images_without_time: usize,
+    /// Videos found and added (their sound is in `found` and `added` once FFmpeg has read them).
+    #[serde(default)] pub videos_found: usize,
+    #[serde(default)] pub videos_added: usize,
 }
 
 pub fn scan(project: &Project, root: &Path) -> Result<ScanReport> {
@@ -29,6 +32,7 @@ pub fn scan(project: &Project, root: &Path) -> Result<ScanReport> {
         let p = entry.path();
         if !entry.file_type().is_file() || p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with('.')) { continue; }
         if crate::photo::is_image(p) { add_image(&tx, p, &entry, &mut rep)?; continue; }
+        if crate::video::is_video(p) { add_video(&tx, p, &entry, &mut rep)?; continue; }
         if !p.extension().and_then(|e| e.to_str()).is_some_and(|e| AUDIO.iter().any(|a| e.eq_ignore_ascii_case(a))) { continue; }
         rep.found += 1;
         let path = p.to_string_lossy().to_string();
@@ -88,10 +92,28 @@ fn add_image(tx: &rusqlite::Transaction, p: &Path, entry: &walkdir::DirEntry, re
     Ok(())
 }
 
+/// One video: grouped by folder like images. Its sound joins the recordings once FFmpeg has read it.
+fn add_video(tx: &rusqlite::Transaction, p: &Path, entry: &walkdir::DirEntry, rep: &mut ScanReport) -> Result<()> {
+    rep.videos_found += 1;
+    let folder = p.parent().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+    let name = p.parent().and_then(|f| f.file_name()).map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Camera".into());
+    tx.execute("INSERT INTO deployments (name, folder, serial) VALUES (?1, ?2, '') ON CONFLICT (folder, serial) DO NOTHING", params![name, folder])?;
+    let dep: i64 = tx.query_row("SELECT id FROM deployments WHERE folder = ?1 AND serial = ''", [&folder], |r| r.get(0))?;
+    // A video FFmpeg cannot read is still listed (it shows as unreadable), so the scan goes on.
+    let added = match crate::video::add(tx, dep, p, entry.metadata().map(|md| md.len() as i64).unwrap_or(0)) { Ok(a) => a, Err(_) => true };
+    if added {
+        rep.videos_added += 1;
+        let path = p.to_string_lossy();
+        if tx.query_row("SELECT EXISTS (SELECT 1 FROM files WHERE path = ?1)", [path.as_ref()], |r| r.get::<_, bool>(0))? { rep.found += 1; rep.added += 1; }
+    }
+    Ok(())
+}
+
 /// One line for the project history.
 pub fn summary(r: &ScanReport, folder: &str) -> String {
     let mut s = format!("Added {} new of {} recordings found in {folder}", crate::history::n(r.added as i64), crate::history::n(r.found as i64));
     if r.images_found > 0 { s.push_str(&format!(", and {} new of {} camera-trap images", crate::history::n(r.images_added as i64), crate::history::n(r.images_found as i64))); }
+    if r.videos_found > 0 { s.push_str(&format!(", and {} new of {} videos", crate::history::n(r.videos_added as i64), crate::history::n(r.videos_found as i64))); }
     s.push_str(&format!(" ({} {})", r.deployments, if r.deployments == 1 { "recorder or camera" } else { "recorders and cameras" }));
     s
 }
@@ -119,5 +141,34 @@ mod tests {
             let secs = crate::audio::read_segment(&clips.join(f), 0.0, 10.0).unwrap().len() as f64 / crate::SR as f64;
             assert!((secs - 1.5).abs() < 0.1, "{f}: {secs}");
         }
+    }
+
+    #[test]
+    fn adds_videos_and_their_sound() {
+        let dir = tempfile::tempdir().unwrap();
+        let cam = dir.path().join("Trail cam 1");
+        std::fs::create_dir_all(&cam).unwrap();
+        let Some(_) = crate::video::tests::make_video(&cam, "a.mp4", 2, true) else { eprintln!("FFmpeg not installed: skipped"); return };
+        crate::video::tests::make_video(&cam, "b.avi", 2, true).unwrap();
+        crate::video::tests::make_video(&cam, "c.mov", 2, false).unwrap();
+        let p = Project::open(&dir.path().join("P.wlnw")).unwrap();
+        let rep = scan(&p, dir.path()).unwrap();
+        assert_eq!((rep.videos_found, rep.videos_added, rep.deployments), (3, 3, 1));
+        // The two with sound are recordings too, under the video's own path.
+        assert_eq!((rep.found, rep.added), (2, 2));
+        let files: Vec<(String, Option<i64>, Option<String>)> = p.db.prepare("SELECT path, sample_rate, start_local FROM files ORDER BY path").unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().map(|r| r.unwrap()).collect();
+        assert!(files[0].0.ends_with("a.mp4") && files[1].0.ends_with("b.avi"));
+        assert_eq!(files[0].1, Some(44100));
+        // The container's clock: written by the test as 2025-12-01 21:14:05.
+        assert_eq!(files[0].2.as_deref(), Some("2025-12-01 21:14:05"));
+        let c = crate::video::counts(&p).unwrap();
+        assert_eq!((c.total, c.unread, c.with_sound), (3, 0, 2));
+        // Scanning again adds nothing.
+        let rep = scan(&p, dir.path()).unwrap();
+        assert_eq!((rep.videos_added, rep.added), (0, 0));
+        // The sound track reads like any recording, from the first frame.
+        let secs = crate::audio::read_segment(&cam.join("b.avi"), 0.5, 10.0).unwrap().len() as f64 / crate::SR as f64;
+        assert!((secs - 1.5).abs() < 0.05, "{secs}");
     }
 }

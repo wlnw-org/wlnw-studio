@@ -59,6 +59,8 @@ export function CreditsLink() {
               </div>
             ))}
             <p className="muted small">{t("Map tiles in the place picker come from OpenFreeMap, with data from OpenStreetMap contributors.")}</p>
+            <p className="muted small">{t("Videos are read with FFmpeg (ffmpeg.org), a separate free program under the GNU LGPL and GPL. Studio does not include it: it uses the copy on your computer, or downloads a pinned build (Martin Riedl's for macOS, Gyan Doshi's for Windows) and checks it before use.")}{" "}
+              <a href="https://ffmpeg.org/legal.html" onClick={ext("https://ffmpeg.org/legal.html")}>{t("Licence")}</a></p>
             <div className="row"><button className="primary" onClick={() => setShow(false)}>{t("Close")}</button></div>
           </div>
         </div>

@@ -8,6 +8,7 @@ pub mod credits;
 pub mod download;
 pub mod export;
 pub mod files;
+pub mod frames;
 pub mod history;
 pub mod images;
 pub mod import;
@@ -24,7 +25,9 @@ pub mod review;
 pub mod run;
 pub mod scan;
 pub mod share;
+pub mod sightings;
 pub mod store;
+pub mod video;
 pub mod wnc;
 
 /// Review clips are played and drawn at 48 kHz.

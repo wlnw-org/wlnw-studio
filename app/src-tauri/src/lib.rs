@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{Emitter, State};
 use wlnw_engine::models::{self, Classifier, ModelInfo};
-use wlnw_engine::{agreement, camtrap, download, export, import, files, live, history, images, occupancy, online, publish, remove, review, run, scan, share, store::Project, wnc};
+use wlnw_engine::{agreement, camtrap, download, export, import, files, live, history, images, occupancy, online, publish, remove, review, run, scan, share, store::Project, video, wnc};
 
 #[derive(Default)]
 struct App {
@@ -90,6 +90,33 @@ fn download_model(app: tauri::AppHandle, id: String) -> R<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+struct FfmpegInfo { installed: bool, path: Option<String>, download: Option<video::Build>, downloading: bool }
+
+/// FFmpeg, which Studio needs to read videos: found on the computer, or downloadable for this platform.
+#[tauri::command(async)]
+fn ffmpeg_info() -> FfmpegInfo {
+    let path = video::ffmpeg();
+    FfmpegInfo { installed: path.is_some(), path: path.map(|p| p.to_string_lossy().to_string()), download: video::build(), downloading: DOWNLOADING.lock().unwrap().iter().any(|b| b == "ffmpeg") }
+}
+
+/// Downloads FFmpeg (progress as "model-progress" events with id "ffmpeg").
+#[tauri::command(async)]
+fn download_ffmpeg(app: tauri::AppHandle) -> R<()> {
+    let id = "ffmpeg".to_string();
+    { let mut b = DOWNLOADING.lock().unwrap(); if b.contains(&id) { return Err("Already downloading.".into()); } b.push(id.clone()); }
+    let dir = install_dir(&app)?;
+    STOP_DOWNLOAD.store(false, Ordering::SeqCst);
+    std::thread::spawn(move || {
+        let r = video::install(&dir, &STOP_DOWNLOAD, |done, total| {
+            let _ = app.emit("model-progress", DownloadEvent { id: id.clone(), done, total, finished: false, error: None });
+        });
+        DOWNLOADING.lock().unwrap().retain(|x| x != &id);
+        let _ = app.emit("model-progress", DownloadEvent { id, done: 0, total: 0, finished: true, error: r.err().map(err) });
+    });
+    Ok(())
+}
+
 #[tauri::command(async)]
 fn cancel_download() { STOP_DOWNLOAD.store(true, Ordering::SeqCst); }
 
@@ -113,6 +140,8 @@ struct Summary {
     dataset: export::DatasetInfo, models: Vec<ModelInfo>, model_errors: Vec<String>, chosen: Vec<String>, wnc: Option<WncInfo>, space: run::Space,
     /// Camera-trap images in the project (None when there are none).
     images: Option<images::Counts>,
+    /// Videos in the project (None when there are none).
+    videos: Option<video::VideoCounts>,
 }
 
 #[derive(Serialize)]
@@ -144,6 +173,7 @@ fn summary(app: tauri::AppHandle, s: State<App>) -> R<Summary> {
         space: run::space(&p, &plan, &ms.iter().filter(|m| m.info().embeds).map(|m| m.info().id.clone()).collect::<Vec<_>>()).map_err(err)?,
         progress: run::progress_all(&p, &plan, &have).map_err(err)?, running: s.running.load(Ordering::Relaxed),
         images: images::counts(&p, camtrap::ID).ok().filter(|c| c.total > 0),
+        videos: video::counts(&p).ok().filter(|c| c.total > 0),
         dataset: export::info(&p),
         models: ms.iter().map(|m| m.info().clone()).collect(), model_errors: errors.clone(), chosen: p.chosen_models(),
         wnc: wnc::pack(&p).map(|k| WncInfo { trained_at: k.trained_at, classes: k.classes.into_iter().map(|c| (c.scientific, c.common, c.positives, c.cv_accuracy)).collect() }),
@@ -197,11 +227,26 @@ async fn image_thumb(file: String, max: u32) -> R<String> {
     }).await.map_err(err)?
 }
 
+/// A sighting's clip (MP4), only from this project's own media folder.
+#[tauri::command]
+async fn video_clip(file: String, s: State<'_, App>) -> R<tauri::ipc::Response> {
+    let dir = std::path::absolute(wlnw_engine::sightings::media_dir(&path(&s)?)).map_err(err)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let f = Path::new(&file);
+        if !f.starts_with(&dir) || f.components().any(|c| matches!(c, std::path::Component::ParentDir)) { return Err("Not a clip of this project.".to_string()); }
+        std::fs::read(f).map(tauri::ipc::Response::new).map_err(err)
+    }).await.map_err(err)?
+}
+
 #[tauri::command(async)]
 fn set_setting(key: String, value: String, s: State<App>) -> R<()> {
     if !["default_threshold", "dataset", "models"].contains(&key.as_str()) { return Err("unknown setting".into()); }
     open(&s)?.set_setting(&key, &value).map_err(err)
 }
+
+/// Frames read per second of video (every video runs again when it changes).
+#[tauri::command(async)]
+fn set_video_rate(per_s: f64, s: State<App>) -> R<bool> { wlnw_engine::frames::set_per_s(&open(&s)?, per_s).map_err(err) }
 
 /// The Wildlife Network dataset this project was last published to (pre-fills the Publish screen; the key is never stored).
 #[tauri::command(async)]
@@ -641,6 +686,8 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             wlnw_engine::birdnet::init_threads();
+            // A downloaded FFmpeg (for videos) sits in the models download folder.
+            if let Ok(d) = install_dir(app.handle()) { video::set_tools_dir(&d); }
             // Updates come from the latest GitHub release (latest.json), checked by the UI on startup.
             #[cfg(desktop)]
             {
@@ -660,7 +707,7 @@ pub fn run() {
             species, review_progress, review_queue, clip, set_verdict, model_catalog, download_model, cancel_download, add_models_folder, name_sound, similar, label_window, train_wnc, wnc_export, wnc_import, export_to, publish_to,
             list_files, export_file_list, retry_failed, history_list, import_results, live_import, live_refresh, live_stations, remove_preview, remove_from_project, answers_export, answers_load, agreement_report, agreement_table, agreement_settle, reviewer_name,
             online_enabled, set_online_enabled, share_status, set_share, share_now, share_delete, online_prefetch, online_flags, online_species, online_around,
-            set_deployment_country, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
+            set_deployment_country, set_video_rate, video_clip, ffmpeg_info, download_ffmpeg, image_species, image_queue, image_filters, set_image_verdict, image_thumb])
         .run(tauri::generate_context!())
         .expect("error while running Wildlife Network Studio");
 }

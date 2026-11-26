@@ -16,3 +16,5 @@ spike/*.npz
 spike/out_*/
 *.wlnw
 app/src-tauri/tauri.sign.json
+spike/video/
+spike/bioclip/data/

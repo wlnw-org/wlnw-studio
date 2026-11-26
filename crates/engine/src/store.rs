@@ -98,8 +98,11 @@ impl Project {
         db.execute_batch(SCHEMA)?;
         db.execute_batch(crate::images::SCHEMA)?;
         db.execute_batch(crate::live::SCHEMA)?;
+        db.execute_batch(crate::video::SCHEMA)?;
+        db.execute_batch(crate::frames::SCHEMA)?;
         // Columns added after schema 2, appended to projects made before them (nullable, so old rows simply have none).
-        for (table, col, ty) in [("detections", "detection_score", "REAL"), ("files", "sample_rate", "INTEGER"), ("deployments", "country", "TEXT"), ("deployments", "admin1", "TEXT")] {
+        for (table, col, ty) in [("detections", "detection_score", "REAL"), ("files", "sample_rate", "INTEGER"), ("deployments", "country", "TEXT"), ("deployments", "admin1", "TEXT"),
+            ("images", "video_id", "INTEGER"), ("images", "start_s", "REAL"), ("images", "end_s", "REAL"), ("images", "clip", "TEXT"), ("images", "frame_s", "REAL")] {
             let has: bool = db.query_row(&format!("SELECT EXISTS (SELECT 1 FROM pragma_table_info('{table}') WHERE name = '{col}')"), [], |r| r.get(0))?;
             if !has { db.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {ty}"))?; }
         }

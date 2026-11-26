@@ -5,7 +5,7 @@
 //!   wlnw place <project.wlnw> <deployment id> <lat> <lon> <utc offset hours>
 //!   wlnw country <project.wlnw> <deployment id> <ISO 3166 alpha-3> [US state]   camera traps: SpeciesNet geofencing
 //!   wlnw use <project.wlnw> [model ids...]          models to run (none = regional default)
-//!   wlnw run <project.wlnw> [models dir]             recordings with the sound models, images with SpeciesNet
+//!   wlnw run <project.wlnw> [models dir]             recordings with the sound models, images and video frames with SpeciesNet
 //!   wlnw status <project.wlnw> [models dir]
 //!   wlnw files <project.wlnw> [done|partial|todo|failed|none] [models dir]
 //!   wlnw retry <project.wlnw>                       try failed recordings again on the next run
@@ -13,6 +13,7 @@
 //!   wlnw species <project.wlnw>
 //!   wlnw verdict <project.wlnw> <detection id> yes|no|unsure
 //!   wlnw images <project.wlnw>                      camera-trap images: counts and species
+//!   wlnw sightings <project.wlnw>                   rebuild video sightings from the frames already read, and list them
 //!   wlnw image-verdict <project.wlnw> <box id> yes|no|unsure
 //!   wlnw example <project.wlnw> <detection id> <scientific name> [absent]
 //!   wlnw similar <project.wlnw> <detection id> [n]
@@ -31,7 +32,9 @@ use std::sync::atomic::AtomicBool;
 use wlnw_engine::{agreement, export, import, files, history, images, models, occupancy, publish, review, run, scan, store::Project, wnc};
 
 fn models_dir(dir: Option<&String>) -> PathBuf {
-    dir.map(PathBuf::from).or_else(|| std::env::var("WLNW_MODELS").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("models"))
+    let d = dir.map(PathBuf::from).or_else(|| std::env::var("WLNW_MODELS").ok().map(PathBuf::from)).unwrap_or_else(|| PathBuf::from("models"));
+    wlnw_engine::video::set_tools_dir(&d);
+    d
 }
 
 fn main() -> Result<()> {
@@ -77,6 +80,11 @@ fn main() -> Result<()> {
             let c = images::counts(&p, wlnw_engine::camtrap::ID)?;
             println!("{} images: {} processed, {} failed; {} with animals, {} with people, {} with vehicles, {} empty", c.total, c.done, c.failed, c.animals, c.people, c.vehicles, c.empty);
             for s in images::species(&p)? { println!("{:>6} boxes {:>6} images {:>6} kept  t={:.2} ({})  {} / {}", s.boxes, s.images, s.kept, s.threshold, s.threshold_source, s.common, s.scientific); }
+        }
+        "sightings" => {
+            let p = proj()?;
+            println!("{} sightings", wlnw_engine::sightings::rebuild_all(&p)?);
+            for s in wlnw_engine::sightings::list(&p)? { println!("{:>7.1} {:>7.1}  {:<8} {:.2}  {}  {}", s.start_s, s.end_s, s.kind, s.score, s.name, s.video); }
         }
         "image-verdict" => images::set_verdict(&proj()?, a[3].parse()?, Some(a[4].as_str()))?,
         "use" => proj()?.set_setting("models", &serde_json::to_string(&a[3..].to_vec())?)?,
