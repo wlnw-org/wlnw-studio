@@ -199,12 +199,20 @@ pub fn read_samples(out: &mut impl Read, max: usize) -> Result<Vec<f32>> {
 #[derive(Debug, Clone, Serialize)]
 pub struct Build { pub version: &'static str, pub urls: &'static [&'static str], pub sha256: &'static str, pub size: u64, pub member: &'static str, pub by: &'static str }
 
-/// FFmpeg 9.1 builds. macOS (Apple silicon): Martin Riedl's static build; Windows: Gyan Doshi's "essentials" build (both
-/// GPL, with x264 for the review clips). Never "latest": a new build means a new checksum here.
+/// FFmpeg 9.1 builds. macOS and Linux: Martin Riedl's builds (the Linux one needs glibc 2.35 or newer, so Ubuntu 22.04,
+/// Debian 12 or later); Windows: Gyan Doshi's "essentials" build (all GPL, with x264 for the review clips).
+/// Never "latest": a new build means a new checksum here. Checksums match the .sha256 files the builders publish.
 pub fn build() -> Option<Build> {
+    const RIEDL: &str = "Martin Riedl (ffmpeg.martin-riedl.de)";
     if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
         Some(Build { version: "9.1", urls: &["https://ffmpeg.martin-riedl.de/download/macos/arm64/1795207104_9.1/ffmpeg.zip"],
-            sha256: "1f66e9a690a7f1c9e60b012379f8869c11818d1797f45b21dbb2f2564ba61ae1", size: 28_623_086, member: "ffmpeg", by: "Martin Riedl (ffmpeg.martin-riedl.de)" })
+            sha256: "1f66e9a690a7f1c9e60b012379f8869c11818d1797f45b21dbb2f2564ba61ae1", size: 28_623_086, member: "ffmpeg", by: RIEDL })
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Some(Build { version: "9.1", urls: &["https://ffmpeg.martin-riedl.de/download/macos/amd64/1795212433_9.1/ffmpeg.zip"],
+            sha256: "35b3d82cccc2c1d644d49d15f5e57eb913a08ef68f798042c90eecec62c51f1e", size: 34_064_287, member: "ffmpeg", by: RIEDL })
+    } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some(Build { version: "9.1", urls: &["https://ffmpeg.martin-riedl.de/download/linux/amd64/1795205506_9.1/ffmpeg.zip"],
+            sha256: "707d4fa675932cc310e39e1506ac9224049786119689e345fed1c453a8a0896e", size: 33_573_944, member: "ffmpeg", by: RIEDL })
     } else if cfg!(all(windows, target_arch = "x86_64")) {
         Some(Build { version: "9.1", urls: &["https://github.com/GyanD/codexffmpeg/releases/download/9.1/ffmpeg-9.1-essentials_build.zip",
             "https://www.gyan.dev/ffmpeg/builds/packages/ffmpeg-9.1-essentials_build.zip"],

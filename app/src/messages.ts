@@ -2,7 +2,7 @@
 // Keep {placeholders} as they are. Product and model names, file formats and species names stay untranslated.
 
 const fr: Record<string, string> = {
-  "Videos are read with FFmpeg (ffmpeg.org), a separate free program under the GNU LGPL and GPL. Studio does not include it: it uses the copy on your computer, or downloads a pinned build (Martin Riedl's for macOS, Gyan Doshi's for Windows) and checks it before use.": "Les vidéos sont lues avec FFmpeg (ffmpeg.org), un programme libre distinct, sous licences GNU LGPL et GPL. Studio ne l'inclut pas : il utilise la copie de votre ordinateur, ou télécharge une version fixée (celle de Martin Riedl pour macOS, celle de Gyan Doshi pour Windows) et la vérifie avant de l'utiliser.",
+  "Videos are read with FFmpeg (ffmpeg.org), a separate free program under the GNU LGPL and GPL. Studio does not include it: it uses the copy on your computer, or downloads a pinned build (Martin Riedl's for macOS and Linux, Gyan Doshi's for Windows) and checks it before use.": "Les vidéos sont lues avec FFmpeg (ffmpeg.org), un programme libre distinct, sous licences GNU LGPL et GPL. Studio ne l'inclut pas : il utilise la copie de votre ordinateur, ou télécharge une version fixée (celle de Martin Riedl pour macOS et Linux, celle de Gyan Doshi pour Windows) et la vérifie avant de l'utiliser.",
   "Video": "Vidéo",
   "From video {file}, {start} to {end}": "De la vidéo {file}, de {start} à {end}",
   "The clip of this sighting could not be read.": "L'extrait de cette observation n'a pas pu être lu.",
@@ -559,7 +559,7 @@ const fr: Record<string, string> = {
 };
 
 const pt: Record<string, string> = {
-  "Videos are read with FFmpeg (ffmpeg.org), a separate free program under the GNU LGPL and GPL. Studio does not include it: it uses the copy on your computer, or downloads a pinned build (Martin Riedl's for macOS, Gyan Doshi's for Windows) and checks it before use.": "Os vídeos são lidos com o FFmpeg (ffmpeg.org), um programa livre à parte, sob as licenças GNU LGPL e GPL. O Studio não o inclui: usa a cópia do seu computador ou baixa uma versão fixa (a de Martin Riedl para macOS, a de Gyan Doshi para Windows) e a verifica antes de usar.",
+  "Videos are read with FFmpeg (ffmpeg.org), a separate free program under the GNU LGPL and GPL. Studio does not include it: it uses the copy on your computer, or downloads a pinned build (Martin Riedl's for macOS and Linux, Gyan Doshi's for Windows) and checks it before use.": "Os vídeos são lidos com o FFmpeg (ffmpeg.org), um programa livre à parte, sob as licenças GNU LGPL e GPL. O Studio não o inclui: usa a cópia do seu computador ou baixa uma versão fixa (a de Martin Riedl para macOS e Linux, a de Gyan Doshi para Windows) e a verifica antes de usar.",
   "Video": "Vídeo",
   "From video {file}, {start} to {end}": "Do vídeo {file}, de {start} a {end}",
   "The clip of this sighting could not be read.": "Não foi possível ler o trecho deste avistamento.",
