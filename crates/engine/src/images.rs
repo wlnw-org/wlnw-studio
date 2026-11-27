@@ -219,6 +219,29 @@ impl VideoRef {
     pub fn frame(&self) -> Option<i64> { Some((self.frame_s? * self.fps?).round() as i64) }
 }
 
+/// Photos from one camera taken at most this far apart are one sequence (one trigger or burst).
+pub const SEQUENCE_GAP_S: i64 = 60;
+
+/// The sequence (WDX `group`, Camtrap DP `eventID`) of every image with a time: a video's sightings share the video
+/// (`video<id>`); photos from one deployment form a sequence while each is taken at most SEQUENCE_GAP_S after the one
+/// before, named after its first photo (`seq<id>`). Blank photos count, as they are part of the burst. Unique within a
+/// deployment, as WDX asks (and project-wide, since the ids are).
+pub fn sequences(p: &Project) -> Result<HashMap<i64, String>> {
+    let mut st = p.db.prepare("SELECT id, deployment_id, taken_local, video_id FROM images WHERE taken_local IS NOT NULL AND taken_local <> ''
+        ORDER BY deployment_id, taken_local, id")?;
+    let rows: Vec<(i64, i64, String, Option<i64>)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?;
+    let mut g = HashMap::new();
+    let mut cur: Option<(i64, NaiveDateTime, i64)> = None; // deployment, last photo time, sequence id
+    for (id, dep, taken, video) in rows {
+        if let Some(v) = video { g.insert(id, format!("video{v}")); continue; }
+        let Ok(t) = NaiveDateTime::parse_from_str(&taken, "%Y-%m-%d %H:%M:%S") else { continue };
+        let seq = match cur { Some((d, last, seq)) if d == dep && (t - last).num_seconds() <= SEQUENCE_GAP_S => seq, _ => id };
+        cur = Some((dep, t, seq));
+        g.insert(id, format!("seq{seq}"));
+    }
+    Ok(g)
+}
+
 /// Columns for `video_ref_from` (images i LEFT JOIN videos v ON v.id = i.video_id).
 const VIDEO_COLS: &str = "i.video_id, v.path, i.start_s, i.end_s, i.frame_s, v.fps, i.clip";
 
@@ -448,7 +471,7 @@ fn csv_field(v: &str) -> String { if v.contains([',', '"', '\n', '\r']) { format
 pub struct CamtrapReport { pub deployments: usize, pub media: usize, pub observations: usize, pub left_out_people: usize, pub left_out_no_time_or_place: usize }
 
 /// Camtrap DP 1.0 (https://camtrap-dp.tdwg.org): deployments.csv, media.csv, observations.csv and datapackage.json in
-/// `dir`. Media and observations are per image and per box (observationLevel media). Images with people are left out;
+/// `dir`. Media and observations are per image and per box (observationLevel media), with the image's sequence as eventID. Images with people are left out;
 /// so are images without a time or whose deployment has no place, since Camtrap DP requires both.
 pub fn camtrapdp(p: &Project, dir: &Path) -> Result<CamtrapReport> {
     std::fs::create_dir_all(dir)?;
@@ -456,6 +479,7 @@ pub fn camtrapdp(p: &Project, dir: &Path) -> Result<CamtrapReport> {
     let people = with_people(p)?;
     let mut rep = CamtrapReport::default();
     let accepted = accepted(p)?;
+    let seqs = sequences(p)?;
     let mut acc_by_image: HashMap<i64, Vec<&Obs>> = HashMap::new();
     for o in &accepted { acc_by_image.entry(o.image_id).or_default().push(o); }
     let deps = p.deployments()?;
@@ -502,7 +526,7 @@ pub fn camtrapdp(p: &Project, dir: &Path) -> Result<CamtrapReport> {
         rep.media += 1;
         let mut row = |oid: String, kind: &str, sci: &str, count: &str, b: Option<[f64; 4]>, method: &str, by: &str, prob: Option<f64>| {
             let bb = b.map(|b| b.iter().map(|v| format!("{:.4}", v)).collect::<Vec<_>>()).unwrap_or_else(|| vec![String::new(); 4]);
-            obs.push_str(&[oid, format!("{ds}-d{dep}"), mid.clone(), String::new(), ts.clone(), ts_end.clone(), "media".into(), kind.into(), String::new(), csv_field(sci), count.into(),
+            obs.push_str(&[oid, format!("{ds}-d{dep}"), mid.clone(), seqs.get(id).cloned().unwrap_or_default(), ts.clone(), ts_end.clone(), "media".into(), kind.into(), String::new(), csv_field(sci), count.into(),
                 String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), bb[0].clone(), bb[1].clone(), bb[2].clone(), bb[3].clone(),
                 method.into(), csv_field(by), String::new(), prob.map(|v| format!("{v:.4}")).unwrap_or_default(), String::new(), String::new()].join(","));
             obs.push('\n');
@@ -669,6 +693,47 @@ mod tests {
     }
 
     #[test]
+    fn wdx_groups_photos_into_sequences() {
+        let (p, dir) = project("seq");
+        p.db.execute_batch("INSERT INTO deployments (id, name, folder, lat, lon, tz_offset_min, tz_known) VALUES (1, 'A', '/a', 1.0, 2.0, 0, 1), (2, 'B', '/b', 1.0, 2.0, 0, 1);
+            INSERT INTO species (id, scientific, common) VALUES (1, 'Axis axis', 'chital'), (2, 'Cuon alpinus', 'dhole');
+            INSERT INTO images (id, deployment_id, path, taken_local, width, height) VALUES
+              (1, 1, '/a/1.jpg', '2026-10-02 21:14:00', 100, 100), (2, 1, '/a/2.jpg', '2026-10-02 21:14:30', 100, 100),
+              (3, 1, '/a/3.jpg', '2026-10-02 21:15:25', 100, 100), (4, 1, '/a/4.jpg', '2026-10-02 21:20:00', 100, 100),
+              (5, 2, '/b/5.jpg', '2026-10-02 21:14:10', 100, 100);
+            INSERT INTO image_models (image_id, model, status, processed_at) VALUES (1, 'speciesnet-4.0.3a', 'done', ''), (2, 'speciesnet-4.0.3a', 'done', ''),
+              (3, 'speciesnet-4.0.3a', 'done', ''), (4, 'speciesnet-4.0.3a', 'done', ''), (5, 'speciesnet-4.0.3a', 'done', '');
+            INSERT INTO image_boxes (id, image_id, model, category, conf, x, y, w, h, kind, species, label, score) VALUES
+              (1, 1, 'speciesnet-4.0.3a', 'animal', 0.9, 0.1, 0.1, 0.2, 0.2, 'animal', 1, 'a;mammalia;cetartiodactyla;cervidae;axis;axis;chital', 0.93),
+              (2, 2, 'speciesnet-4.0.3a', 'animal', 0.9, 0.1, 0.1, 0.2, 0.2, 'animal', 1, 'a;mammalia;cetartiodactyla;cervidae;axis;axis;chital', 0.93),
+              (3, 2, 'speciesnet-4.0.3a', 'animal', 0.9, 0.6, 0.6, 0.2, 0.2, 'animal', 2, 'b;mammalia;carnivora;canidae;cuon;alpinus;dhole', 0.93),
+              (4, 3, 'speciesnet-4.0.3a', 'animal', 0.9, 0.1, 0.1, 0.2, 0.2, 'animal', 1, 'a;mammalia;cetartiodactyla;cervidae;axis;axis;chital', 0.93),
+              (5, 4, 'speciesnet-4.0.3a', 'animal', 0.9, 0.1, 0.1, 0.2, 0.2, 'animal', 1, 'a;mammalia;cetartiodactyla;cervidae;axis;axis;chital', 0.93),
+              (6, 5, 'speciesnet-4.0.3a', 'animal', 0.9, 0.1, 0.1, 0.2, 0.2, 'animal', 1, 'a;mammalia;cetartiodactyla;cervidae;axis;axis;chital', 0.93);").unwrap();
+        let out = dir.join("s.ndjson");
+        // The count is what was written: six boxes.
+        assert_eq!(crate::export::wdx(&p, &out).unwrap(), 6);
+        let groups: std::collections::BTreeMap<String, String> = std::fs::read_to_string(&out).unwrap().lines().map(|l| {
+            let ev: serde_json::Value = serde_json::from_str(l).unwrap();
+            assert_eq!((ev["wdx"].as_str(), ev["group"]["type"].as_str()), (Some("0.4"), Some("sequence")));
+            (ev["source"]["sourceRecordId"].as_str().unwrap().to_string(), ev["group"]["groupId"].as_str().unwrap().to_string())
+        }).collect();
+        // 21:14:00, 21:14:30 (both boxes) and 21:15:25 are each within 60 s of the one before; 21:20:00 starts a new
+        // sequence; the other camera has its own even at the same minute.
+        let want: std::collections::BTreeMap<String, String> = [("img1", "seq1"), ("img2", "seq1"), ("img3", "seq1"), ("img4", "seq1"), ("img5", "seq4"), ("img6", "seq5")]
+            .into_iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+        assert_eq!(groups, want);
+        // Camtrap DP observations carry the same sequence as eventID.
+        let dp = dir.join("dp");
+        camtrapdp(&p, &dp).unwrap();
+        let obs = std::fs::read_to_string(dp.join("observations.csv")).unwrap();
+        let ev: Vec<(&str, &str)> = obs.lines().skip(1).map(|l| { let c: Vec<&str> = l.split(',').collect(); (c[0], c[3]) }).collect();
+        assert!(ev.contains(&("wlnw-studio-o3", "seq1")) && ev.contains(&("wlnw-studio-o5", "seq4")) && ev.contains(&("wlnw-studio-o6", "seq5")), "{ev:?}");
+        drop(p);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn video_sightings_export_with_the_video_and_times() {
         let (p, dir) = project("vid");
         p.db.execute_batch("INSERT INTO deployments (id, name, folder, lat, lon, tz_offset_min, tz_known) VALUES (1, 'Trail', '/t', 35.1, -106.6, -420, 1);
@@ -701,6 +766,8 @@ mod tests {
         assert_eq!(ev["media"]["fileName"], "IMAG0042.AVI");
         assert_eq!((ev["media"]["startOffsetSeconds"].as_f64(), ev["media"]["durationSeconds"].as_f64()), (Some(2.0), Some(10.0)));
         assert_eq!(ev["media"]["region"]["frame"], 210);
+        // Sightings from one video share a WDX group (one trigger).
+        assert_eq!((ev["group"]["groupId"].as_str(), ev["group"]["type"].as_str()), (Some("video1"), Some("sequence")));
         // No institution set: no rightsHolder (WDX wants text there, not null).
         assert!(ev["dataset"].get("rightsHolder").is_none());
         // Darwin Core: the interval in view, the video as the media, the seconds in the remarks.
