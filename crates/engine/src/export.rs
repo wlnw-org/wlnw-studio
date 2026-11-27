@@ -138,6 +138,7 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
     let i = info(p);
     let ds = p.setting("dataset_id")?.unwrap_or_else(|| "studio".into());
     let mut f = std::io::BufWriter::new(std::fs::File::create(out)?);
+    let mut n_audio = 0;
     for d in &rows {
         let Some(t) = d.utc else { continue };
         let ev = serde_json::json!({
@@ -156,10 +157,11 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
         });
         if d.lat.is_none() { continue; }
         writeln!(f, "{ev}")?;
+        n_audio += 1;
     }
     // Camera-trap boxes: one event per box (WDX allows one region per event); never people or vehicles.
     let obs = crate::images::accepted(p)?;
-    let groups = camera_groups(&obs);
+    let groups = crate::images::sequences(p)?;
     let mut n_img = 0;
     for o in &obs {
         let (Some(t), Some(lat), Some(lon)) = (o.utc, o.lat, o.lon) else { continue };
@@ -173,7 +175,7 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
                 "confidence": (o.score * 10000.0).round() / 10000.0, "classifier": { "name": name, "version": ver, "reference": crate::credits::reference("speciesnet").rsplit(' ').next() },
                 "pipeline": [{ "role": "detector", "name": "MegaDetector", "version": "6 MIT YOLOv9" }, { "role": "classifier", "name": name, "version": ver }] },
             "media": wdx_media(o),
-            "group": { "groupId": groups[&o.box_id], "type": "sequence" },
+            "group": { "groupId": groups.get(&o.image_id), "type": "sequence" },
             "review": { "status": if o.verdict.as_deref() == Some("yes") { "confirmed" } else { "unreviewed" } },
             "source": { "system": "wlnw-studio", "systemVersion": env!("CARGO_PKG_VERSION"), "sourceRecordId": format!("img{}", o.box_id) },
             "license": i.license,
@@ -182,29 +184,7 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
         writeln!(f, "{ev}")?;
         n_img += 1;
     }
-    Ok(rows.len() + n_img)
-}
-
-/// Photos from one camera taken at most this far apart are one sequence (one trigger or burst).
-pub const SEQUENCE_GAP_S: i64 = 60;
-
-/// The WDX group of each camera-trap box: a video's sightings share the video; photos from one deployment form a sequence
-/// while each is taken at most SEQUENCE_GAP_S after the one before. Ids are unique within a deployment, as WDX asks.
-fn camera_groups(obs: &[crate::images::Obs]) -> std::collections::HashMap<i64, String> {
-    let mut g = std::collections::HashMap::new();
-    let mut photos: Vec<&crate::images::Obs> = obs.iter().filter(|o| o.video.is_none()).collect();
-    photos.sort_by_key(|o| (o.deployment_id, o.utc, o.image_id));
-    let mut cur: Option<(i64, Option<chrono::NaiveDateTime>, i64)> = None; // deployment, last photo time, sequence id
-    for o in photos {
-        let seq = match cur {
-            Some((d, Some(last), seq)) if d == o.deployment_id && o.utc.is_some_and(|t| (t - last).num_seconds() <= SEQUENCE_GAP_S) => seq,
-            _ => o.image_id,
-        };
-        cur = Some((o.deployment_id, o.utc, seq));
-        g.insert(o.box_id, format!("seq{seq}"));
-    }
-    for o in obs { if let Some(v) = &o.video { g.insert(o.box_id, format!("video{}", v.video_id)); } }
-    g
+    Ok(n_audio + n_img)
 }
 
 /// The WDX dataset block. WDX wants text where a field is given, so a project with no institution leaves rightsHolder out.
