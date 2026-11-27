@@ -131,7 +131,8 @@ pub fn kaleidoscope(p: &Project, out: &Path) -> Result<usize> {
     Ok(rows.len())
 }
 
-/// WDX v0.4 events, one per line (https://github.com/arunrajiah/wildlife-detection-exchange).
+/// WDX v0.4 events, one per line (https://github.com/arunrajiah/wildlife-detection-exchange). Camera-trap events also carry
+/// `group`, proposed for WDX v0.5 (spec section 3.1): v0.4 receivers ignore fields they do not know, so the events stay v0.4.
 pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
     let rows = p.accepted()?;
     let i = info(p);
@@ -158,6 +159,7 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
     }
     // Camera-trap boxes: one event per box (WDX allows one region per event); never people or vehicles.
     let obs = crate::images::accepted(p)?;
+    let groups = camera_groups(&obs);
     let mut n_img = 0;
     for o in &obs {
         let (Some(t), Some(lat), Some(lon)) = (o.utc, o.lat, o.lon) else { continue };
@@ -171,6 +173,7 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
                 "confidence": (o.score * 10000.0).round() / 10000.0, "classifier": { "name": name, "version": ver, "reference": crate::credits::reference("speciesnet").rsplit(' ').next() },
                 "pipeline": [{ "role": "detector", "name": "MegaDetector", "version": "6 MIT YOLOv9" }, { "role": "classifier", "name": name, "version": ver }] },
             "media": wdx_media(o),
+            "group": { "groupId": groups[&o.box_id], "type": "sequence" },
             "review": { "status": if o.verdict.as_deref() == Some("yes") { "confirmed" } else { "unreviewed" } },
             "source": { "system": "wlnw-studio", "systemVersion": env!("CARGO_PKG_VERSION"), "sourceRecordId": format!("img{}", o.box_id) },
             "license": i.license,
@@ -180,6 +183,28 @@ pub fn wdx(p: &Project, out: &Path) -> Result<usize> {
         n_img += 1;
     }
     Ok(rows.len() + n_img)
+}
+
+/// Photos from one camera taken at most this far apart are one sequence (one trigger or burst).
+pub const SEQUENCE_GAP_S: i64 = 60;
+
+/// The WDX group of each camera-trap box: a video's sightings share the video; photos from one deployment form a sequence
+/// while each is taken at most SEQUENCE_GAP_S after the one before. Ids are unique within a deployment, as WDX asks.
+fn camera_groups(obs: &[crate::images::Obs]) -> std::collections::HashMap<i64, String> {
+    let mut g = std::collections::HashMap::new();
+    let mut photos: Vec<&crate::images::Obs> = obs.iter().filter(|o| o.video.is_none()).collect();
+    photos.sort_by_key(|o| (o.deployment_id, o.utc, o.image_id));
+    let mut cur: Option<(i64, Option<chrono::NaiveDateTime>, i64)> = None; // deployment, last photo time, sequence id
+    for o in photos {
+        let seq = match cur {
+            Some((d, Some(last), seq)) if d == o.deployment_id && o.utc.is_some_and(|t| (t - last).num_seconds() <= SEQUENCE_GAP_S) => seq,
+            _ => o.image_id,
+        };
+        cur = Some((o.deployment_id, o.utc, seq));
+        g.insert(o.box_id, format!("seq{seq}"));
+    }
+    for o in obs { if let Some(v) = &o.video { g.insert(o.box_id, format!("video{}", v.video_id)); } }
+    g
 }
 
 /// The WDX dataset block. WDX wants text where a field is given, so a project with no institution leaves rightsHolder out.
