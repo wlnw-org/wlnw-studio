@@ -75,24 +75,32 @@ pub struct VideoInfo {
 /// Reads what `ffmpeg -i <file>` prints about a file (FFmpeg has no machine-readable form without ffprobe).
 pub fn parse_probe(text: &str) -> VideoInfo {
     use std::sync::OnceLock;
-    static RE: OnceLock<[regex::Regex; 5]> = OnceLock::new();
-    let [dur, size, fps, hz, created] = RE.get_or_init(|| [
+    static RE: OnceLock<[regex::Regex; 6]> = OnceLock::new();
+    let [dur, size, fps, hz, created, rotation] = RE.get_or_init(|| [
         regex::Regex::new(r"Duration: (\d+):(\d\d):(\d\d(?:\.\d+)?)").unwrap(),
         regex::Regex::new(r", (\d{2,5})x(\d{2,5})[ ,\[]").unwrap(),
         regex::Regex::new(r", ([\d.]+(?:k)?) (?:fps|tbr)").unwrap(),
         regex::Regex::new(r", (\d+) Hz").unwrap(),
         regex::Regex::new(r"creation_time\s*: (\d{4}-\d\d-\d\d)[T ](\d\d:\d\d:\d\d)").unwrap(),
+        // Phones film sideways and store a display rotation ("displaymatrix: rotation of -90.00 degrees" in older FFmpeg,
+        // "Display Matrix: rotation of 90.00 degrees" in newer).
+        regex::Regex::new(r"(?i)display ?matrix: rotation of (-?[\d.]+) degrees").unwrap(),
     ]);
     let mut v = VideoInfo::default();
     if let Some(c) = dur.captures(text) {
         v.duration_s = Some(c[1].parse::<f64>().unwrap_or(0.0) * 3600.0 + c[2].parse::<f64>().unwrap_or(0.0) * 60.0 + c[3].parse::<f64>().unwrap_or(0.0));
     }
-    for line in text.lines().filter(|l| l.trim_start().starts_with("Stream #")) {
+    let lines: Vec<&str> = text.lines().collect();
+    for (i, line) in lines.iter().enumerate().filter(|(_, l)| l.trim_start().starts_with("Stream #")) {
         if line.contains(": Video: ") && v.width.is_none() {
             // Cover art in an audio file is a "video" stream too, marked as attached_pic: not a video.
             if line.contains("attached pic") { continue; }
             if let Some(c) = size.captures(line) { v.width = c[1].parse().ok(); v.height = c[2].parse().ok(); }
             v.fps = fps.captures(line).and_then(|c| { let s = &c[1]; if let Some(k) = s.strip_suffix('k') { k.parse::<f64>().ok().map(|x| x * 1000.0) } else { s.parse().ok() } });
+            // FFmpeg turns frames upright when it decodes them, so report the size as shown, not as stored.
+            let rot = lines[i + 1..].iter().take_while(|l| !l.trim_start().starts_with("Stream #"))
+                .find_map(|l| rotation.captures(l)).and_then(|c| c[1].parse::<f64>().ok());
+            if rot.is_some_and(|r| (r.abs().round() as i64) % 180 == 90) { std::mem::swap(&mut v.width, &mut v.height); }
         } else if line.contains(": Audio: ") && v.audio_rate.is_none() {
             v.audio_rate = hz.captures(line).and_then(|c| c[1].parse().ok());
         }
@@ -275,6 +283,44 @@ pub(crate) mod tests {
         c.args(["-metadata", "creation_time=2025-12-01T21:14:05Z"]).arg(&out);
         assert!(c.status().unwrap().success());
         Some(out)
+    }
+
+    /// A phone-style clip: HEVC tagged hvc1 in a .mov, optionally stored sideways with a 90 degree display rotation.
+    /// None when FFmpeg or its HEVC encoder is missing.
+    pub fn make_phone_video(dir: &Path, name: &str, rotated: bool) -> Option<PathBuf> {
+        ffmpeg()?;
+        let enc = command().unwrap().args(["-hide_banner", "-encoders"]).output().ok()?;
+        if !String::from_utf8_lossy(&enc.stdout).contains("libx265") { return None; }
+        let plain = dir.join(format!("{name}.plain.mov"));
+        let st = command().unwrap().args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=10:duration=3",
+            "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000:duration=3",
+            "-c:v", "libx265", "-tag:v", "hvc1", "-x265-params", "log-level=error", "-c:a", "aac",
+            "-metadata", "creation_time=2025-12-01T21:14:05Z"]).arg(&plain).status().ok()?;
+        assert!(st.success());
+        let out = dir.join(name);
+        if rotated {
+            let st = command().unwrap().args(["-v", "error", "-y", "-display_rotation", "90", "-i"]).arg(&plain).args(["-c", "copy"]).arg(&out).status().ok()?;
+            assert!(st.success());
+        } else { std::fs::rename(&plain, &out).ok()?; }
+        Some(out)
+    }
+
+    #[test]
+    fn reads_the_rotation_phones_write() {
+        let old = "  Stream #0:0[0x1](und): Video: hevc (Main) (hvc1 / 0x31637668), yuv420p(tv, bt709), 1920x1080, 9000 kb/s, 29.97 fps, 30 tbr, 600 tbn (default)
+    Metadata:
+      handler_name    : Core Media Video
+    Side data:
+      displaymatrix: rotation of -90.00 degrees
+  Stream #0:1[0x2](und): Audio: aac (LC) (mp4a / 0x6134706D), 44100 Hz, stereo, fltp, 160 kb/s (default)";
+        assert_eq!((parse_probe(old).width, parse_probe(old).height), (Some(1080), Some(1920)));
+        let new = old.replace("displaymatrix: rotation of -90.00", "Display Matrix: rotation of 90.00");
+        assert_eq!((parse_probe(&new).width, parse_probe(&new).height), (Some(1080), Some(1920)));
+        let upside = old.replace("-90.00", "180.00");
+        assert_eq!((parse_probe(&upside).width, parse_probe(&upside).height), (Some(1920), Some(1080)));
+        // A rotation on the sound stream (never seen, but harmless) does not swap the video.
+        let none = old.replace("    Side data:\n      displaymatrix: rotation of -90.00 degrees\n", "");
+        assert_eq!((parse_probe(&none).width, parse_probe(&none).height), (Some(1920), Some(1080)));
     }
 
     #[test]

@@ -223,6 +223,69 @@ pub fn list(p: &Project) -> Result<Vec<Listed>> {
 mod tests {
     use super::*;
 
+    fn probe_text(path: &Path) -> String {
+        let out = crate::video::command().unwrap().arg("-i").arg(path).output().unwrap();
+        String::from_utf8_lossy(&out.stderr).to_string()
+    }
+
+    /// Mean difference between two same-size RGB images, 0 to 255.
+    fn diff(a: &[u8], b: &[u8]) -> f64 { a.iter().zip(b).map(|(x, y)| (*x as f64 - *y as f64).abs()).sum::<f64>() / a.len() as f64 }
+
+    /// `im` turned a quarter turn anticlockwise, as FFmpeg shows a video with a 90 degree display rotation.
+    fn turn_left(im: &camtrap::Rgb) -> Vec<u8> {
+        let (w, h) = (im.w, im.h);
+        let mut out = vec![0u8; w * h * 3];
+        for y in 0..h { for x in 0..w {
+            let (nx, ny) = (y, w - 1 - x); // new image is h wide, w high
+            out[(ny * h + nx) * 3..(ny * h + nx) * 3 + 3].copy_from_slice(&im.px[(y * w + x) * 3..(y * w + x) * 3 + 3]);
+        } }
+        out
+    }
+
+    #[test]
+    fn phone_videos_come_out_upright() {
+        let dir = tempfile::tempdir().unwrap();
+        let (Some(flat), Some(turned)) = (crate::video::tests::make_phone_video(dir.path(), "flat.mov", false),
+            crate::video::tests::make_phone_video(dir.path(), "turned.mov", true)) else { eprintln!("FFmpeg with libx265 not installed: skipped"); return };
+        assert!(probe_text(&turned).contains("hvc1"));
+        for (path, (w, h)) in [(&flat, (320, 240)), (&turned, (240, 320))] {
+            // Probe reports the size as shown.
+            let v = crate::video::probe(path).unwrap();
+            assert_eq!((v.width, v.height, v.audio_rate), (Some(w), Some(h), Some(48_000)), "{}", path.display());
+            assert!((v.duration_s.unwrap() - 3.0).abs() < 0.1);
+            // Sound.
+            let mut child = crate::video::sound(path, 48_000, 0.0).unwrap();
+            let s = crate::video::read_samples(child.stdout.as_mut().unwrap(), 10 * 48_000).unwrap();
+            let _ = child.wait();
+            assert!((s.len() as f64 / 48_000.0 - 3.0).abs() < 0.1, "{} samples", s.len());
+            // Frames, still and clip, all upright.
+            let mut frames = vec![];
+            crate::frames::read_frames(path, 1.0, |_, im| { frames.push(im); Ok(true) }).unwrap();
+            assert_eq!(frames.len(), 3);
+            assert!(frames.iter().all(|f| (f.w, f.h) == (w as usize, h as usize)));
+            let still = dir.path().join(format!("{}.jpg", path.file_stem().unwrap().to_string_lossy()));
+            crate::frames::still(path, 1.0, &still).unwrap();
+            assert_eq!(image::image_dimensions(&still).unwrap(), (w, h));
+            let clip = dir.path().join(format!("{}.clip.mp4", path.file_stem().unwrap().to_string_lossy()));
+            cut_clip(path, 0.5, 2.0, &clip).unwrap();
+            let text = probe_text(&clip);
+            assert!(text.contains("Video: h264"), "{text}");
+            let c = crate::video::parse_probe(&text);
+            assert_eq!((c.width, c.height), (Some(w), Some(h)), "{text}");
+            assert!((c.duration_s.unwrap() - 1.5).abs() < 0.2);
+        }
+        // The turned video's frames are the flat video's frames turned, not stretched or flipped.
+        let mut a = vec![]; crate::frames::read_frames(&flat, 1.0, |_, im| { a.push(im); Ok(true) }).unwrap();
+        let mut b = vec![]; crate::frames::read_frames(&turned, 1.0, |_, im| { b.push(im); Ok(true) }).unwrap();
+        let left = diff(&turn_left(&a[1]), &b[1].px);
+        // Turned the other way (three quarter turns left) it must not match, so the check can fail.
+        let r1 = camtrap::Rgb { w: a[1].h, h: a[1].w, px: turn_left(&a[1]) };
+        let r2 = camtrap::Rgb { w: r1.h, h: r1.w, px: turn_left(&r1) };
+        let right = diff(&turn_left(&r2), &b[1].px);
+        assert!(right > 40.0, "turned the wrong way only differs by {right:.1}");
+        assert!(left < 8.0, "turned frame differs from the flat frame turned left by {left:.1}");
+    }
+
     fn seen(t: f64, x: f64, label: &str, score: f64, sharp: f64) -> Seen {
         Seen { t, category: "animal".into(), conf: 0.9, bbox: [x, 0.4, 0.2, 0.2], kind: "animal".into(), label: (!label.is_empty()).then(|| label.to_string()),
             score, source: None, top: "[]".into(), sharp }
