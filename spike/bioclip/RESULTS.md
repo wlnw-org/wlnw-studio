@@ -1,4 +1,29 @@
-# BioCLIP 2 through SPARROW-Engine: feasibility check
+# BioCLIP 2 as a second opinion next to SpeciesNet: evaluation
+
+Run 2026-11-27. Test only, no change to Studio.
+
+## 1. Licences
+
+| What | Licence | Source checked | Stops Studio shipping it to free users? |
+|---|---|---|---|
+| BioCLIP 2 weights (imageomics/bioclip-2, Hugging Face, revision 2957b32, DOI 10.57967/hf/5765) | MIT | Hugging Face model card metadata (`license: mit`) | No. MIT allows download, use and redistribution; keep the copyright notice and cite Gu et al. 2025. |
+| SPARROW Model Zoo 0.33.0, Zenodo record 23992557 (latest version on 2026-11-27; concept record 20348978) | Record: "other-open", an umbrella note: each model keeps its own upstream terms. Package `bioclip-2` and `bioclip-2-fp16`: MIT, hosting "Hosted", commercial use "allowed", restriction "attribution", conversion permission "verified" | Zenodo API, bundle LICENSE.md, MODEL_ZOO_CATALOGUE.md, the package's LICENSE.md and SOURCE.md | No. Redistributing the zoo bundle needs the per-model LICENSE.md, MODEL_CARD.md, ATTRIBUTION.md and SOURCE.md kept with it; Studio would ship those files with the download. |
+| BioCLIP 2 text tower (used offline only, to make the species embedding table) | MIT (same repository) | as above | No. Only its output (one vector per species) would ship. |
+| TreeOfLife-200M (training data; metadata only, not used here) | CC0 for the compilation; images keep their own licences | dataset card | Not shipped. Only used to choose a test set it cannot contain. |
+| iNaturalist photos (test set a) | Per photo: only CC0, CC BY 4.0 and CC BY-NC 4.0 taken; each photo's licence and observer are in testset_inat.csv | iNaturalist API v1 `license_code` per photo | No. Used locally for this measurement only, never redistributed or committed. |
+| LILA BC camera-trap images (test set b) | Community Data License Agreement, permissive 1.0 (CDLA-Permissive-1.0) | IDLE-OO Camera Traps dataset card and LILA dataset pages | No. Used locally, not committed. |
+| Our footage (test set c): a wetland video shared privately with us for the Studio demo (25 Nov 2026) and the Camera survey demo images | Not published; the provenance of the 13 Camera survey images is not recorded anywhere I could find (EXIF Make "Camera trap", dates 2016) | local files | No. Private, used locally only; paths in the CSV are relative and no image is committed. Unverified: the Camera survey images' original source and licence. |
+
+None of these stops Studio from downloading and running BioCLIP 2 for free users. The obligations are attribution (MIT notice, the BioCLIP 2 citation, the zoo's per-model files) and, for SpeciesNet, which Studio already ships, Apache 2.0.
+
+### What BioCLIP 2 was trained on
+
+TreeOfLife-200M combines GBIF (occurrence snapshot of 2024-05-01, DOI 10.15468/dl.bfv433, still images only; this includes iNaturalist research-grade photos and about 596,000 camera-trap images published to GBIF), Encyclopedia of Life (media manifest, no version date given), BIOSCAN-5M and FathomNet. LILA BC camera-trap sets are not among the sources, and five of them (IDLE-OO Camera Traps) were held out as BioCLIP 2's own benchmark, with MD5 and metadata checks against training. So:
+
+- iNaturalist photos are only safe if the observation was made and uploaded after the snapshot. EOL also republishes iNaturalist photos and gives no snapshot date, so this test takes observations made and uploaded on or after 2025-06-01, after the BioCLIP 2 paper (May 2025), as a margin.
+- LILA BC images are outside the training sources. They are not outside SpeciesNet's: SpeciesNet was trained on many LILA sets, so on test set b SpeciesNet is likely to have seen the images and has an advantage.
+
+# Earlier feasibility check (2026-11-26)
 
 Run 2026-11-26 with sparrow-engine 0.1.32, the zoo's bioclip-2 encoder (Sparrow Model Zoo 0.33.0, Zenodo record 23992557) and BioCLIP 2's text tower from imageomics/bioclip-2 (open_clip).
 
