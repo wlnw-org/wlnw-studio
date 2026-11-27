@@ -14,7 +14,7 @@ export interface SpeciesRow { label: number; model: string; scientific: string; 
 export interface Detection { id: number; file_id: number; path: string; deployment_id: number; start_s: number; end_s: number; label: number; scientific: string; common: string; model: string; confidence: number; detection_score?: number | null; in_range: boolean; utc: string | null; lat: number | null; lon: number | null; site: string; verdict: string | null }
 export interface Clip { wav: string; spec: string; width: number; height: number; offset_s: number; window_s: number; total_s: number; max_khz: number; playback: number; slowed: number }
 export interface ScanReport { found: number; added: number; without_time: number; deployments: number; images_found: number; images_added: number; images_without_time: number; videos_found: number; videos_added: number }
-export interface VideoCounts { total: number; unread: number; with_sound: number; seconds: number; ffmpeg: boolean; frames_per_s: number }
+export interface VideoCounts { total: number; unread: number; with_sound: number; seconds: number; ffmpeg: boolean; frames_per_s: number; clip_max_s: number }
 export interface FfmpegInfo { installed: boolean; path: string | null; download: { version: string; size: number; by: string } | null; downloading: boolean }
 export interface ImageCounts { total: number; done: number; failed: number; animals: number; people: number; vehicles: number; empty: number; boxes: number }
 export interface ImageSpeciesRow { label: number; model: string; scientific: string; common: string; boxes: number; images: number; kept: number; reviewed: number; yes: number; no: number; threshold: number; threshold_source: string; precision: number | null; max_score: number }
@@ -73,6 +73,7 @@ export const api = {
   downloadModel: (id: string) => invoke<void>("download_model", { id }),
   cancelDownload: () => invoke<void>("cancel_download"),
   setVideoRate: (perS: number) => invoke<boolean>("set_video_rate", { perS }),
+  setClipLength: (seconds: number) => invoke<boolean>("set_clip_length", { seconds }),
   ffmpegInfo: () => invoke<FfmpegInfo>("ffmpeg_info"),
   downloadFfmpeg: () => invoke<void>("download_ffmpeg"),
   addModelsFolder: (folder: string) => invoke<string[]>("add_models_folder", { folder }),

@@ -2,6 +2,8 @@
 // Keep {placeholders} as they are. Product and model names, file formats and species names stay untranslated.
 
 const fr: Record<string, string> = {
+  "Clips are at most": "Les extraits durent au plus",
+  "seconds, cut around the sharpest frame. A sighting keeps its full time in view in exports.": "secondes, coupés autour de l'image la plus nette. Dans les exports, une observation garde toute sa durée à l'écran.",
   "Videos are read with FFmpeg (ffmpeg.org), a separate free program under the GNU LGPL and GPL. Studio does not include it: it uses the copy on your computer, or downloads a pinned build (Martin Riedl's for macOS and Linux, Gyan Doshi's for Windows) and checks it before use.": "Les vidéos sont lues avec FFmpeg (ffmpeg.org), un programme libre distinct, sous licences GNU LGPL et GPL. Studio ne l'inclut pas : il utilise la copie de votre ordinateur, ou télécharge une version fixée (celle de Martin Riedl pour macOS et Linux, celle de Gyan Doshi pour Windows) et la vérifie avant de l'utiliser.",
   "Video": "Vidéo",
   "From video {file}, {start} to {end}": "De la vidéo {file}, de {start} à {end}",
@@ -559,6 +561,8 @@ const fr: Record<string, string> = {
 };
 
 const pt: Record<string, string> = {
+  "Clips are at most": "Os trechos têm no máximo",
+  "seconds, cut around the sharpest frame. A sighting keeps its full time in view in exports.": "segundos, cortados em torno do quadro mais nítido. Nas exportações, o avistamento mantém todo o tempo em que o animal ficou à vista.",
   "Videos are read with FFmpeg (ffmpeg.org), a separate free program under the GNU LGPL and GPL. Studio does not include it: it uses the copy on your computer, or downloads a pinned build (Martin Riedl's for macOS and Linux, Gyan Doshi's for Windows) and checks it before use.": "Os vídeos são lidos com o FFmpeg (ffmpeg.org), um programa livre à parte, sob as licenças GNU LGPL e GPL. O Studio não o inclui: usa a cópia do seu computador ou baixa uma versão fixa (a de Martin Riedl para macOS e Linux, a de Gyan Doshi para Windows) e a verifica antes de usar.",
   "Video": "Vídeo",
   "From video {file}, {start} to {end}": "Do vídeo {file}, de {start} a {end}",

@@ -165,12 +165,12 @@ pub fn refresh(p: &Project) -> Result<usize> {
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
-pub struct VideoCounts { pub total: i64, pub unread: i64, pub with_sound: i64, pub seconds: f64, pub ffmpeg: bool, pub frames_per_s: f64 }
+pub struct VideoCounts { pub total: i64, pub unread: i64, pub with_sound: i64, pub seconds: f64, pub ffmpeg: bool, pub frames_per_s: f64, pub clip_max_s: f64 }
 
 pub fn counts(p: &Project) -> Result<VideoCounts> {
     let (total, unread, with_sound, seconds) = p.db.query_row("SELECT COUNT(*), SUM(probed = 0), SUM(audio_rate IS NOT NULL), COALESCE(SUM(duration_s), 0) FROM videos", [],
         |r| Ok((r.get(0)?, r.get::<_, Option<i64>>(1)?.unwrap_or(0), r.get::<_, Option<i64>>(2)?.unwrap_or(0), r.get(3)?)))?;
-    Ok(VideoCounts { total, unread, with_sound, seconds, ffmpeg: ffmpeg().is_some(), frames_per_s: crate::frames::per_s(p) })
+    Ok(VideoCounts { total, unread, with_sound, seconds, ffmpeg: ffmpeg().is_some(), frames_per_s: crate::frames::per_s(p), clip_max_s: crate::sightings::clip_max_s(p) })
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

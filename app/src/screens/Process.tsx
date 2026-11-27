@@ -40,7 +40,11 @@ export default function Process({ summary, live, refresh, onError, next, showFil
         {t("Videos: Studio reads")}{" "}<select value={summary.videos.frames_per_s} disabled={summary.running}
           onChange={(e) => api.setVideoRate(Number(e.target.value)).then(refresh).catch((x) => onError(String(x)))}>
           {[...new Set([0.5, 1, 2, 5, summary.videos.frames_per_s])].sort((a, b) => a - b).map((r) => <option key={r} value={r}>{r.toLocaleString()}</option>)}
-        </select>{" "}{t("frames a second through MegaDetector and SpeciesNet, follows each animal from frame to frame, and keeps its sharpest frame and a short clip. More frames catch fast animals but take longer; changing it runs the videos again.")}</p>}
+        </select>{" "}{t("frames a second through MegaDetector and SpeciesNet, follows each animal from frame to frame, and keeps its sharpest frame and a short clip. More frames catch fast animals but take longer; changing it runs the videos again.")}{" "}
+        {t("Clips are at most")}{" "}<select value={summary.videos.clip_max_s} disabled={summary.running}
+          onChange={(e) => api.setClipLength(Number(e.target.value)).then(refresh).catch((x) => onError(String(x)))}>
+          {[...new Set([5, 10, 20, 30, 60, summary.videos.clip_max_s])].sort((a, b) => a - b).map((r) => <option key={r} value={r}>{r.toLocaleString()}</option>)}
+        </select>{" "}{t("seconds, cut around the sharpest frame. A sighting keeps its full time in view in exports.")}</p>}
       {summary.models.some((m) => m.id !== "speciesnet-4.0.3a") && <div className="card">
         <h3>{t("Which models to run")}</h3>
         <label className="choice"><input type="radio" checked={auto} onChange={() => choose([])} disabled={summary.running} />

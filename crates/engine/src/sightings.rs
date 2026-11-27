@@ -33,6 +33,33 @@ pub const MIN_TRACK_CONF: f64 = 0.2;
 pub const SAME_INSIDE: f64 = 0.6;
 /// Clips start this long before the first sighting and end this long after the last.
 pub const CLIP_PAD_S: f64 = 1.0;
+/// Longest clip, in seconds, by default. An animal that stays in view for the whole video would otherwise get the whole
+/// file as its clip. The sighting keeps its real start and end; only the clip is cut around the sharpest frame.
+pub const DEFAULT_CLIP_MAX_S: f64 = 10.0;
+
+/// The project's longest clip (setting "video_clip_max_s", 3 to 300 seconds).
+pub fn clip_max_s(p: &Project) -> f64 {
+    p.setting("video_clip_max_s").ok().flatten().and_then(|v| v.parse::<f64>().ok()).filter(|v| v.is_finite()).unwrap_or(DEFAULT_CLIP_MAX_S).clamp(3.0, 300.0)
+}
+
+/// Sets the longest clip and cuts every sighting's clip again. Returns false when nothing changed.
+pub fn set_clip_max_s(p: &Project, v: f64) -> Result<bool> {
+    if !(3.0..=300.0).contains(&v) { anyhow::bail!("Choose a clip length between 3 and 300 seconds."); }
+    if (clip_max_s(p) - v).abs() < 1e-9 { return Ok(false); }
+    p.set_setting("video_clip_max_s", &v.to_string())?;
+    rebuild_all(p)?;
+    Ok(true)
+}
+
+/// Where to cut a sighting's clip: its time in view plus CLIP_PAD_S each side, inside the video, and at most `max_s`
+/// long, centred on the sharpest frame (moved back inside the sighting near its ends).
+pub fn clip_window(start: f64, end: f64, best: f64, max_s: f64, duration: Option<f64>) -> (f64, f64) {
+    let dur = duration.unwrap_or(f64::MAX);
+    let (from, to) = ((start - CLIP_PAD_S).max(0.0), (end + CLIP_PAD_S).min(dur));
+    if to - from <= max_s { return (from, to); }
+    let a = (best - max_s / 2.0).clamp(from, to - max_s);
+    (a, a + max_s)
+}
 
 fn iou(a: [f64; 4], b: [f64; 4]) -> f64 {
     let (x0, y0) = (a[0].max(b[0]), a[1].max(b[1]));
@@ -166,6 +193,7 @@ pub fn build(p: &Project, tx: &Transaction, video_id: i64, model: &str) -> Resul
     let dir = std::path::absolute(media_dir(&p.path))?;
     std::fs::create_dir_all(&dir)?;
     let duration: Option<f64> = tx.query_row("SELECT duration_s FROM videos WHERE id = ?1", [video_id], |r| r.get(0))?;
+    let max_s = clip_max_s(p);
     let start_time = taken.as_deref().and_then(|t| chrono::NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S").ok());
     let mut species: HashMap<String, i64> = HashMap::new();
     let mut n = 0;
@@ -177,7 +205,8 @@ pub fn build(p: &Project, tx: &Transaction, video_id: i64, model: &str) -> Resul
         crate::frames::still(video, best.t, &still)?;
         let clip = dir.join(format!("{stem}.mp4"));
         // A sighting without its clip is still a sighting: the still and times are what count.
-        let clip = cut_clip(video, (start - CLIP_PAD_S).max(0.0), end + CLIP_PAD_S, &clip).ok().map(|_| clip);
+        let (from, to) = clip_window(start, end, best.t, max_s, duration);
+        let clip = cut_clip(video, from, to, &clip).ok().map(|_| clip);
         let (w, h) = image::image_dimensions(&still).map(|(w, h)| (Some(w as i64), Some(h as i64))).unwrap_or((None, None));
         let at = start_time.map(|t| (t + chrono::Duration::milliseconds((start * 1000.0) as i64)).format("%Y-%m-%d %H:%M:%S").to_string());
         tx.execute("INSERT INTO images (deployment_id, path, taken_local, time_source, bytes, width, height, video_id, start_s, end_s, clip, frame_s)
@@ -240,6 +269,20 @@ mod tests {
             out[(ny * h + nx) * 3..(ny * h + nx) * 3 + 3].copy_from_slice(&im.px[(y * w + x) * 3..(y * w + x) * 3 + 3]);
         } }
         out
+    }
+
+    #[test]
+    fn long_sightings_get_a_short_clip_around_the_sharpest_frame() {
+        // Short sightings keep their padded time in view.
+        assert_eq!(clip_window(5.0, 8.0, 6.0, 10.0, Some(60.0)), (4.0, 9.0));
+        assert_eq!(clip_window(0.0, 3.0, 1.0, 10.0, Some(3.5)), (0.0, 3.5));
+        // An animal in view for the whole minute: 10 s around its sharpest frame.
+        assert_eq!(clip_window(0.0, 60.0, 30.0, 10.0, Some(60.0)), (25.0, 35.0));
+        // Sharpest frame near either end: the clip stays inside the video.
+        assert_eq!(clip_window(0.0, 60.0, 1.0, 10.0, Some(60.0)), (0.0, 10.0));
+        assert_eq!(clip_window(0.0, 60.0, 59.0, 10.0, Some(60.0)), (50.0, 60.0));
+        // Unknown length.
+        assert_eq!(clip_window(10.0, 50.0, 40.0, 20.0, None), (30.0, 50.0));
     }
 
     #[test]
