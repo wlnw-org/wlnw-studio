@@ -53,7 +53,7 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
   }
   const deps = summary.deployments;
   const missing = deps.filter((d) => d.lat == null || !d.tz_known).length;
-  const cams = deps.some((d) => d.images > 0);
+  const cams = deps.some((d) => d.images > 0 || d.videos > 0);
   const hours = deps.reduce((s, d) => s + d.hours, 0);
   return (
     <section>
@@ -82,7 +82,7 @@ export default function Recordings({ summary, refresh, onError, next }: { summar
             <tbody>{deps.map((d) => <Row key={d.id} d={d} cams={cams} running={summary.running} onSaved={refresh} onError={onError}
               onRemoved={(note) => { setReport(note); refresh(); }} />)}</tbody>
           </table>
-          {cams && <p className="muted small">{t("Camera traps: set each camera's country (three letters, for example KEN, IND, BRA or USA, and the state code for the USA) so SpeciesNet can rule out species that do not live there. Changing it runs that camera's images again.")}</p>}
+          {cams && <p className="muted small">{t("Camera traps: set each camera's country (three letters, for example KEN, IND, BRA or USA, and the state code for the USA) so SpeciesNet can rule out species that do not live there. Changing it runs that camera's images and videos again.")}</p>}
           <AroundRecorders deps={deps} />
           <div className="card import-card">
             <h3>{t("Import results from another tool")}</h3>
@@ -125,7 +125,7 @@ function Row({ d, cams, running, onSaved, onError, onRemoved }: { d: Deployment;
   return (
     <tr>
       <td><input value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} aria-label={t("Recorder name")} /><small className="muted block">{d.model ?? ""} {d.folder ? d.folder.split(/[\\/]/).slice(-2).join("/") : d.serial}</small></td>
-      <td>{d.files}{d.images > 0 && <small className="muted block">{t("{n} images", { n: d.images.toLocaleString() })}</small>}</td>
+      <td>{d.files}{d.images > 0 && <small className="muted block">{t("{n} images", { n: d.images.toLocaleString() })}</small>}{d.videos > 0 && <small className="muted block">{t("{n} videos", { n: d.videos.toLocaleString() })}</small>}</td>
       <td>
         <div className="place">
           <input className={d.lat == null ? "need" : ""} value={v.lat} onChange={(e) => setV({ ...v, lat: e.target.value })} placeholder={t("Latitude")} inputMode="decimal" aria-label={t("Latitude")} />
@@ -134,12 +134,12 @@ function Row({ d, cams, running, onSaved, onError, onRemoved }: { d: Deployment;
         </div>
       </td>
       <td><input className={!d.tz_known ? "need tz" : "tz"} value={v.tz} onChange={(e) => setV({ ...v, tz: e.target.value })} inputMode="decimal" aria-label={t("UTC offset in hours")} title={d.tz_known ? t("From the recording or confirmed") : t("Please confirm: Song Meters usually record local time, AudioMoths UTC")} /></td>
-      {cams && <td>{d.images > 0 && <>
+      {cams && <td>{(d.images > 0 || d.videos > 0) && <>
         <input className={`country ${d.country ? "" : "need"}`} value={country} maxLength={3} onChange={(e) => setCountry(e.target.value)} placeholder="KEN" aria-label={t("Country code")} />
         {country.trim().toUpperCase() === "USA" && <input className="country" value={state} maxLength={2} onChange={(e) => setState(e.target.value)} placeholder={t("State")} aria-label={t("US state code")} />}
         {countryDirty && <button className="small-btn" onClick={saveCountry}>{t("Save")}</button>}
       </>}</td>}
-      <td className="small">{isLive(d) ? t("Live station: detections from the station") : [...(d.files > 0 ? d.models.map(modelName) : []), ...(d.images > 0 ? ["SpeciesNet"] : [])].join(" + ") || t("none")}{d.perch_region && d.files > 0 && <small className="muted block">{t("Perch first in this region")}</small>}</td>
+      <td className="small">{isLive(d) ? t("Live station: detections from the station") : [...(d.files > 0 ? d.models.map(modelName) : []), ...(d.images > 0 || d.videos > 0 ? ["SpeciesNet"] : [])].join(" + ") || t("none")}{d.perch_region && d.files > 0 && <small className="muted block">{t("Perch first in this region")}</small>}</td>
       <td className="actions">{dirty ? <button onClick={() => save()}>{t("Save")}</button> : saved ? <span className="ok">{t("Saved")}</span> : null}
         <button className="small-btn" onClick={remove} disabled={running} title={running ? t("Pause processing first") : t("Take this recorder out of the project. The files stay on your disk.")}>{t("Remove")}</button></td>
       {map && <MapPicker lat={d.lat} lon={d.lon} title={v.name} onClose={() => setMap(false)}

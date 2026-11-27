@@ -126,7 +126,7 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut o
                 Ok((w, h, found)) => {
                     let tx = p.db.unchecked_transaction()?;
                     tx.execute("DELETE FROM image_boxes WHERE image_id = ?1 AND model = ?2", params![image_id, id])?;
-                    let n = store_boxes(p, &tx, *image_id, &id, &found, &mut species)?;
+                    let n = store_boxes(p, &tx, *image_id, &id, &found, &mut species, &net.ensemble, country.as_deref(), admin1.as_deref())?;
                     tx.execute("UPDATE images SET width = ?2, height = ?3 WHERE id = ?1", params![image_id, w as i64, h as i64])?;
                     tx.execute("INSERT OR REPLACE INTO image_models (image_id, model, status, error, processed_at) VALUES (?1, ?2, 'done', NULL, datetime('now'))", params![image_id, id])?;
                     tx.commit()?;
@@ -150,7 +150,9 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut o
 }
 
 /// Writes the classified boxes of one image (unclassified ones, below SpeciesNet's 0.1, are not kept). Returns how many.
-fn store_boxes(p: &Project, tx: &Transaction, image_id: i64, model: &str, found: &[Found], species: &mut HashMap<String, i64>) -> Result<i64> {
+#[allow(clippy::too_many_arguments)]
+fn store_boxes(p: &Project, tx: &Transaction, image_id: i64, model: &str, found: &[Found], species: &mut HashMap<String, i64>,
+    ens: &camtrap::Ensemble, country: Option<&str>, admin1: Option<&str>) -> Result<i64> {
     let mut ins = tx.prepare("INSERT INTO image_boxes (image_id, model, category, conf, x, y, w, h, kind, species, label, score, source, top)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)")?;
     let mut n = 0;
@@ -160,7 +162,7 @@ fn store_boxes(p: &Project, tx: &Transaction, image_id: i64, model: &str, found:
         let sp = if t.kind == "animal" {
             Some(match species.get(&t.scientific) { Some(&s) => s, None => { let s = p.species_id(&t.scientific, &t.common)?; species.insert(t.scientific.clone(), s); s } })
         } else { None };
-        let top: Vec<(String, f64)> = f.top.iter().map(|(l, s)| { let t = camtrap::taxon(l); (if t.common.is_empty() { t.scientific } else { t.common }, (*s * 10000.0).round() / 10000.0) }).collect();
+        let top = ens.suggestions(&f.top, country, admin1);
         let b = f.det.bbox;
         ins.execute(params![image_id, model, camtrap::CLASSES[f.det.class], f.det.conf as f64, b[0], b[1], b[2], b[3], t.kind, sp, pr.label, pr.score, pr.source, serde_json::to_string(&top)?])?;
         n += 1;

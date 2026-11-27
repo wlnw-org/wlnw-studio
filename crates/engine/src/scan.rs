@@ -164,6 +164,9 @@ mod tests {
         assert_eq!(files[0].2.as_deref(), Some("2025-12-01 21:14:05"));
         let c = crate::video::counts(&p).unwrap();
         assert_eq!((c.total, c.unread, c.with_sound), (3, 0, 2));
+        // A videos-only camera: counted as videos, not images, so the Recordings screen offers its Country box.
+        let d = &p.deployments().unwrap()[0];
+        assert_eq!((d.videos, d.images), (3, 0));
         // Scanning again adds nothing.
         let rep = scan(&p, dir.path()).unwrap();
         assert_eq!((rep.videos_added, rep.added), (0, 0));

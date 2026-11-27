@@ -157,7 +157,7 @@ pub fn run(p: &Project, models: &[Arc<dyn Classifier>], stop: &AtomicBool, mut o
                                 // Boxes below SpeciesNet's classifying threshold keep the detector's own class.
                                 None => (camtrap::CLASSES[f.det.class].to_string(), None, f.det.conf as f64, None),
                             };
-                            let top: Vec<(String, f64)> = f.top.iter().map(|(l, s)| { let t = camtrap::taxon(l); (if t.common.is_empty() { t.scientific } else { t.common }, (*s * 10000.0).round() / 10000.0) }).collect();
+                            let top = net.ensemble.suggestions(&f.top, country.as_deref(), admin1.as_deref());
                             ins.execute(params![video_id, id, t, camtrap::CLASSES[f.det.class], f.det.conf as f64, b[0], b[1], b[2], b[3], kind, label, score, source, serde_json::to_string(&top)?, sharp])?;
                         }
                     }
