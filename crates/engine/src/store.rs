@@ -19,8 +19,10 @@ pub struct Deployment {
     pub tz_offset_min: i32,
     pub tz_known: bool,
     pub files: i64, pub done: i64, pub hours: f64,
-    /// Camera traps: images found, and the country (ISO 3166-1 alpha-3) and US state SpeciesNet's geofencing uses.
+    /// Camera traps: images found (not counting sightings cut from videos), videos found, and the country
+    /// (ISO 3166-1 alpha-3) and US state SpeciesNet's geofencing uses for both.
     #[serde(default)] pub images: i64,
+    #[serde(default)] pub videos: i64,
     #[serde(default)] pub country: Option<String>,
     #[serde(default)] pub admin1: Option<String>,
 }
@@ -129,12 +131,13 @@ impl Project {
         let mut st = self.db.prepare(
             "SELECT d.id, d.name, d.folder, d.serial, d.model, d.lat, d.lon, d.tz_offset_min, d.tz_known,
                     COUNT(f.id), COUNT(f.id) FILTER (WHERE f.duration_s IS NOT NULL), COALESCE(SUM(f.duration_s), 0) / 3600.0,
-                    (SELECT COUNT(*) FROM images i WHERE i.deployment_id = d.id), d.country, d.admin1
+                    (SELECT COUNT(*) FROM images i WHERE i.deployment_id = d.id AND i.video_id IS NULL), d.country, d.admin1,
+                    (SELECT COUNT(*) FROM videos v WHERE v.deployment_id = d.id)
              FROM deployments d LEFT JOIN files f ON f.deployment_id = d.id GROUP BY d.id ORDER BY d.name")?;
         let rows = st.query_map([], |r| Ok(Deployment {
             id: r.get(0)?, name: r.get(1)?, folder: r.get(2)?, serial: r.get(3)?, model: r.get(4)?, lat: r.get(5)?, lon: r.get(6)?,
             tz_offset_min: r.get(7)?, tz_known: r.get::<_, i64>(8)? == 1, files: r.get(9)?, done: r.get(10)?, hours: r.get(11)?,
-            images: r.get(12)?, country: r.get(13)?, admin1: r.get(14)?,
+            images: r.get(12)?, country: r.get(13)?, admin1: r.get(14)?, videos: r.get(15)?,
         }))?;
         Ok(rows.collect::<Result<_, _>>()?)
     }

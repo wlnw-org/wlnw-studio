@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { t } from "./i18n";
 
-export interface Deployment { id: number; name: string; folder: string; serial: string | null; model: string | null; lat: number | null; lon: number | null; tz_offset_min: number; tz_known: boolean; files: number; done: number; hours: number; models: string[]; perch_region: boolean; images: number; country: string | null; admin1: string | null }
+export interface Deployment { id: number; name: string; folder: string; serial: string | null; model: string | null; lat: number | null; lon: number | null; tz_offset_min: number; tz_known: boolean; files: number; done: number; hours: number; models: string[]; perch_region: boolean; images: number; videos: number; country: string | null; admin1: string | null }
 export interface Progress { jobs_done: number; jobs_total: number; current_model: string | null; files_done: number; files_total: number; hours_done: number; bytes_done: number; bytes_total: number; detections: number; speed_x: number; eta_s: number | null; current: string | null; errors: number; images_done: number; images_total: number; images_per_s: number; videos_done: number; videos_total: number }
 export interface DatasetInfo { title: string; institution: string | null; people: string[]; license: string; description: string | null; contact_email: string | null }
 export interface ModelInfo { id: string; name: string; version: string; licence: string; licence_url: string; citation: string; sample_rate: number; window: number; embeds: boolean; location_filter: boolean; speed_x: number }

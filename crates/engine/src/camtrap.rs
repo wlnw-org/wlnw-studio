@@ -400,6 +400,14 @@ impl Ensemble {
         false
     }
 
+    /// The classifier's top classes as shown to a reviewer: species that do not live in the camera's country (or US
+    /// state) left out, like the answer itself, then named by common name (scientific when there is none), scores to
+    /// four places. Without a country nothing is left out.
+    pub fn suggestions(&self, top: &[(String, f64)], country: Option<&str>, admin1: Option<&str>) -> Vec<(String, f64)> {
+        top.iter().filter(|(l, _)| !self.geofenced(l, country, admin1))
+            .map(|(l, s)| { let t = taxon(l); (if t.common.is_empty() { t.scientific } else { t.common }, (*s * 10000.0).round() / 10000.0) }).collect()
+    }
+
     /// The first taxonomy level whose summed scores pass `threshold` (geofenced taxa left out).
     pub fn roll_up(&self, top: &[(String, f64)], country: Option<&str>, admin1: Option<&str>, levels: &[&str], threshold: f64) -> Option<Processed> {
         for level in levels {
@@ -591,6 +599,18 @@ mod tests {
     const LEOPARD: &str = "f;mammalia;carnivora;felidae;panthera;pardus;leopard";
     const COYOTE: &str = "g;mammalia;carnivora;canidae;canis;latrans;coyote";
     fn top(v: &[(&str, f64)]) -> Vec<(String, f64)> { v.iter().map(|(l, s)| (l.to_string(), *s)).collect() }
+
+    #[test]
+    fn suggestions_leave_out_species_from_elsewhere() {
+        let e = ens();
+        let t = top(&[(COYOTE, 0.5), (LION, 0.3), (LEOPARD, 0.12345678)]);
+        let names = |c: Option<&str>, a: Option<&str>| e.suggestions(&t, c, a).into_iter().map(|(n, _)| n).collect::<Vec<_>>();
+        assert_eq!(names(None, None), ["coyote", "lion", "leopard"]);
+        assert_eq!(names(Some("KEN"), None), ["coyote", "lion"]);
+        assert_eq!(names(Some("GBR"), None), Vec::<String>::new());
+        assert_eq!(names(Some("USA"), Some("CA")), ["coyote", "leopard"]);
+        assert_eq!(e.suggestions(&t, None, None)[2].1, 0.1235);
+    }
 
     #[test]
     fn nms_per_class_and_order() {
